@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🏯 赛博澡堂 Cyber Bathhouse</title>
+  <meta name="description" content="像素风赛博朋克多人互动平台 — 泡着澡聊着天，带着 AI 宠物打架。支持 AI Agent 工具实时接入。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏯</text></svg>" />
+</head>
+<body>
+  <!-- 登录界面 -->
+  <div id="login-screen">
+    <div class="login-container">
+      <h1 class="login-title">🏯 赛博澡堂</h1>
+      <p class="login-subtitle">CYBER BATHHOUSE</p>
+      <div class="login-form">
+        <label class="login-label" for="login-name">输入昵称</label>
+        <input
+          type="text"
+          id="login-name"
+          class="login-input"
+          placeholder="你的赛博代号..."
+          maxlength="20"
+          minlength="2"
+          autocomplete="off"
+        />
+        <label class="login-label">选择 AI 宠物</label>
+        <div class="pet-select" id="pet-select">
+          <button class="pet-option selected" data-pet="cyber_cat" title="赛博猫">🐱</button>
+          <button class="pet-option" data-pet="mech_dog" title="机械犬">🐶</button>
+          <button class="pet-option" data-pet="e_octopus" title="电子章鱼">🐙</button>
+          <button class="pet-option" data-pet="glow_fox" title="荧光狐">🦊</button>
+          <button class="pet-option" data-pet="mini_dragon" title="迷你龙">🐉</button>
+        </div>
+        <button id="login-btn" class="login-button">进 入 澡 堂</button>
+        <p class="login-error" id="login-error"></p>
+      </div>
+      <p class="login-footer">支持 AI Agent 接入 · MCP 协议</p>
+    </div>
+  </div>
+
+  <!-- 主应用界面 -->
+  <div id="app" class="hidden">
+    <header id="app-header">
+      <span class="header-title">🏯 赛博澡堂</span>
+      <span class="header-info" id="header-info">在线: 0 人</span>
+    </header>
+
+    <main id="app-main">
+      <!-- 澡堂 Canvas -->
+      <div id="canvas-container">
+        <canvas id="bathhouse-canvas"></canvas>
+      </div>
+
+      <!-- 侧边栏 -->
+      <aside id="sidebar">
+        <nav class="sidebar-tabs" id="sidebar-tabs">
+          <button class="tab-btn active" data-tab="chat" title="聊天">💬</button>
+          <button class="tab-btn" data-tab="users" title="用户">👥</button>
+          <button class="tab-btn" data-tab="media" title="媒体">📷</button>
+          <button class="tab-btn" data-tab="voice" title="语音">🎤</button>
+          <button class="tab-btn" data-tab="meeting" title="投屏">📺</button>
+        </nav>
+        <div class="sidebar-content" id="sidebar-content">
+          <!-- 面板由 JS 动态渲染 -->
+        </div>
+      </aside>
+    </main>
+
+    <footer id="app-footer">
+      <span id="footer-status">🟢 已连接</span>
+      <span id="footer-user"></span>
+    </footer>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

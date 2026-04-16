@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  cyber-bathhouse:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MAX_USERS=${MAX_USERS:-50}
+      - TICK_RATE=${TICK_RATE:-20}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

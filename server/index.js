@@ -1,0 +1,86 @@
+/**
+ * 赛博澡堂 — 服务端入口
+ *
+ * Express + Socket.IO + MCP Server
+ */
+
+import express from 'express';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import cors from 'cors';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+import { CONFIG } from './config.js';
+import { World } from './world/World.js';
+import { AuthManager } from './api/auth.js';
+import { createApiRoutes } from './api/routes.js';
+import { initWebSocket } from './api/websocket.js';
+import { createMcpServer, mountMcpServer } from './mcp/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// ─── 实例化核心模块 ───────────────────────────────────
+const world = new World();
+const auth = new AuthManager();
+
+// ─── Express 应用 ─────────────────────────────────────
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// ─── REST API ─────────────────────────────────────────
+app.use('/api', createApiRoutes(world, auth));
+
+// ─── MCP Server ───────────────────────────────────────
+const mcpServer = createMcpServer(world, auth);
+await mountMcpServer(app, mcpServer);
+
+// ─── 静态文件（生产模式）──────────────────────────────
+if (CONFIG.NODE_ENV === 'production') {
+  const distPath = join(__dirname, '..', 'dist');
+  app.use(express.static(distPath));
+
+  // SPA fallback
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/mcp')) {
+      res.sendFile(join(distPath, 'index.html'));
+    }
+  });
+}
+
+// ─── HTTP Server + Socket.IO ──────────────────────────
+const httpServer = createServer(app);
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
+
+// ─── WebSocket 初始化 ─────────────────────────────────
+initWebSocket(io, world, auth);
+
+// ─── 启动 ─────────────────────────────────────────────
+httpServer.listen(CONFIG.PORT, () => {
+  console.log('');
+  console.log('  🏯 ═══════════════════════════════════════════');
+  console.log('  ║                                             ║');
+  console.log('  ║     赛博澡堂 Cyber Bathhouse               ║');
+  console.log('  ║                                             ║');
+  console.log('  ═══════════════════════════════════════════════');
+  console.log('');
+  console.log(`  🌐 Web:        http://localhost:${CONFIG.PORT}`);
+  console.log(`  📡 REST API:   http://localhost:${CONFIG.PORT}/api`);
+  console.log(`  🔌 MCP:        http://localhost:${CONFIG.PORT}/mcp`);
+  console.log(`  🔗 WebSocket:  ws://localhost:${CONFIG.PORT}`);
+  console.log('');
+  console.log(`  📊 环境: ${CONFIG.NODE_ENV}`);
+  console.log(`  👥 最大用户: ${CONFIG.MAX_USERS}`);
+  console.log(`  ⏱  Tick 频率: ${CONFIG.TICK_RATE}Hz`);
+  console.log('');
+  console.log('  💡 Agent 接入:');
+  console.log(`     claude mcp add cyber-bathhouse --transport http http://localhost:${CONFIG.PORT}/mcp`);
+  console.log('');
+});
