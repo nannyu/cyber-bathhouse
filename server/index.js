@@ -10,6 +10,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve, isAbsolute } from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
 
 import { CONFIG } from './config.js';
 import { World } from './world/World.js';
@@ -27,6 +29,48 @@ const databasePath = isAbsolute(CONFIG.DB_PATH)
   ? CONFIG.DB_PATH
   : resolve(__dirname, '..', CONFIG.DB_PATH);
 const database = new Database(databasePath);
+
+// ─── Bootstrap admin account ──────────────────────────
+// 规则：默认用户名 `admin`，密码 `admin`。
+// 仅在首次启动缺失时创建；如昵称被占用会自动追加后缀以通过唯一约束。
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+const ADMIN_NICKNAME_BASE = process.env.ADMIN_NICKNAME || 'Admin';
+
+function ensureUniqueNickname(base) {
+  let nickname = base;
+  let i = 1;
+  while (database.isNicknameTaken(nickname)) {
+    i += 1;
+    nickname = `${base}_${i}`;
+  }
+  return nickname;
+}
+
+const existingAdmin = database.getAccountByUsername(ADMIN_USERNAME);
+if (!existingAdmin) {
+  const userId = `usr_${uuidv4().slice(0, 8)}`;
+  const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, CONFIG.BCRYPT_ROUNDS);
+  const nickname = ensureUniqueNickname(ADMIN_NICKNAME_BASE);
+
+  database.createAccount({
+    username: ADMIN_USERNAME,
+    password: passwordHash,
+    nickname,
+    userId,
+    role: 'admin',
+  });
+
+  // 创建一个默认宠物档案，保证管理员可正常进入世界并点击宠物界面
+  const petId = `pet_${uuidv4().slice(0, 8)}`;
+  database.createPetForOwner({
+    id: petId,
+    ownerUserId: userId,
+    petType: CONFIG.PET_TYPES[0],
+    petNickname: `${nickname}的宠物`,
+  });
+}
+
 const world = new World(database);
 const auth = new AuthManager(database);
 
