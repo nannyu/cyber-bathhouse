@@ -459,11 +459,11 @@ export function createMcpServer(world, auth) {
 /**
  * 将 MCP Server 挂载到 Express 路径
  * @param {import('express').Express} app
- * @param {McpServer} mcpServer
+ * @param {() => McpServer} createServer
  */
-export async function mountMcpServer(app, mcpServer) {
-  // 存储活跃 transports
-  const transports = new Map();
+export async function mountMcpServer(app, createServer) {
+  // 每个 session 维护独立 server+transport，避免一个 McpServer 重复 connect 导致 500
+  const sessions = new Map();
 
   // POST /mcp — 处理 MCP 请求
   app.post('/mcp', async (req, res) => {
@@ -471,10 +471,20 @@ export async function mountMcpServer(app, mcpServer) {
       // 检查是否有已有 session
       const sessionId = req.headers['mcp-session-id'];
 
-      if (sessionId && transports.has(sessionId)) {
+      if (sessionId && sessions.has(sessionId)) {
         // 复用已有 transport
-        const transport = transports.get(sessionId);
+        const { transport } = sessions.get(sessionId);
         await transport.handleRequest(req, res);
+        return;
+      }
+
+      // 客户端带了 session 但服务端不存在，明确返回会话不存在，避免误建新 transport 导致 500
+      if (sessionId && !sessions.has(sessionId)) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32600, message: 'No active session. Send initialize request again.' },
+          id: null,
+        });
         return;
       }
 
@@ -485,18 +495,19 @@ export async function mountMcpServer(app, mcpServer) {
 
       transport.onClose = () => {
         const sid = transport.sessionId;
-        if (sid) transports.delete(sid);
+        if (sid) sessions.delete(sid);
       };
 
       // 连接 MCP Server
+      const mcpServer = createServer();
       await mcpServer.connect(transport);
 
-      // 存储 transport
-      if (transport.sessionId) {
-        transports.set(transport.sessionId, transport);
-      }
-
       await transport.handleRequest(req, res);
+
+      // sessionId 在 initialize 后才确定，因此在 handleRequest 后再存储
+      if (transport.sessionId) {
+        sessions.set(transport.sessionId, { transport, mcpServer });
+      }
     } catch (err) {
       console.error('[MCP] 请求处理错误:', err.message);
       if (!res.headersSent) {
@@ -512,8 +523,8 @@ export async function mountMcpServer(app, mcpServer) {
   // GET /mcp — SSE 流（用于服务端推送）
   app.get('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId);
+    if (sessionId && sessions.has(sessionId)) {
+      const { transport } = sessions.get(sessionId);
       await transport.handleRequest(req, res);
     } else {
       res.status(400).json({
@@ -527,10 +538,10 @@ export async function mountMcpServer(app, mcpServer) {
   // DELETE /mcp — 关闭 session
   app.delete('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId);
+    if (sessionId && sessions.has(sessionId)) {
+      const { transport } = sessions.get(sessionId);
       await transport.handleRequest(req, res);
-      transports.delete(sessionId);
+      sessions.delete(sessionId);
     } else {
       res.status(400).json({
         jsonrpc: '2.0',

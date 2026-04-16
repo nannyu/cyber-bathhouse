@@ -14,6 +14,7 @@ let petProfile = null;
 let privateChatThread = null;
 let privateChatLastTs = 0;
 let privateChatPollTimer = null;
+let connectionHandlersBound = false;
 
 // ─── DOM 引用 ─────────────────────────────────────────
 const loginScreen = document.getElementById('login-screen');
@@ -390,9 +391,21 @@ function enterApp(name) {
   // Canvas 点击事件
   game.onCanvasClick = handleCanvasClick;
 
-  // 监听服务端事件
+  bindConnectionHandlersOnce();
+
+  // 初始化侧边栏
+  initSidebar();
+  renderChatPanel();
+  loadPetProfile();
+}
+
+function bindConnectionHandlersOnce() {
+  if (connectionHandlersBound) return;
+  connectionHandlersBound = true;
+
+  // 监听服务端事件（只绑定一次，避免重复渲染/重复系统消息）
   conn.on('world:update', (state) => {
-    game.updateState(state);
+    game?.updateState(state);
     headerInfo.textContent = `在线: ${state.users?.length || 0} 人`;
 
     // 更新用户列表面板
@@ -400,7 +413,7 @@ function enterApp(name) {
   });
 
   conn.on('world:state', (state) => {
-    game.updateState(state);
+    game?.updateState(state);
     // 加载历史消息
     if (state.recentMessages) {
       for (const msg of state.recentMessages) {
@@ -440,7 +453,7 @@ function enterApp(name) {
     const actions = ['左勾拳', '回旋踢', '头槌', '过肩摔', '黑虎掏心', '升龙拳', '扫堂腿'];
     const act1 = actions[Math.floor(Math.random() * actions.length)];
     const act2 = actions[Math.floor(Math.random() * actions.length)];
-    
+
     let msg = `💥 ${data.attackerName}使出${act1}`;
     msg += data.attackerDamage > 0 ? `(${data.defenderName} HP-${data.attackerDamage})` : `(被闪避)`;
     msg += `，${data.defenderName}回敬${act2}`;
@@ -456,11 +469,6 @@ function enterApp(name) {
   conn.on('connected', () => {
     footerStatus.textContent = '🟢 已连接';
   });
-
-  // 初始化侧边栏
-  initSidebar();
-  renderChatPanel();
-  loadPetProfile();
 }
 
 // ─── Canvas 点击处理 ──────────────────────────────────
@@ -762,8 +770,34 @@ function sendChatMessage(input) {
 
 /** @type {Array<Object>} 聊天历史 */
 const chatHistory = [];
+/** @type {Set<string>} 去重窗口，避免同一消息重复渲染 */
+const seenChatKeys = new Set();
+/** @type {Array<string>} 去重窗口顺序队列（用于限制大小） */
+const seenChatKeyQueue = [];
+
+function getChatMessageKey(msg) {
+  // 优先使用后端消息 id；回退到内容指纹
+  if (msg?.id) return `id:${msg.id}`;
+  return `fp:${msg?.userId || ''}|${msg?.name || ''}|${msg?.timestamp || ''}|${msg?.message || ''}`;
+}
+
+function rememberChatKey(key) {
+  seenChatKeys.add(key);
+  seenChatKeyQueue.push(key);
+  // 只保留最近 500 条，防止会话过长占用内存
+  if (seenChatKeyQueue.length > 500) {
+    const oldest = seenChatKeyQueue.shift();
+    if (oldest) seenChatKeys.delete(oldest);
+  }
+}
 
 function appendChatMessage(msg) {
+  const key = getChatMessageKey(msg);
+  if (seenChatKeys.has(key)) {
+    return;
+  }
+  rememberChatKey(key);
+
   chatHistory.push(msg);
   if (chatHistory.length > 200) chatHistory.shift();
 

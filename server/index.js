@@ -80,14 +80,18 @@ const app = express();
 // 才能正确识别 req.protocol（从而生成 HTTPS endpoint）。
 app.set('trust proxy', true);
 app.use(cors());
-app.use(express.json());
+// MCP transport 需要读取原始请求流，不能被 express.json() 预先消费。
+const jsonParser = express.json();
+app.use((req, res, next) => {
+  if (req.path === '/mcp') return next();
+  return jsonParser(req, res, next);
+});
 
 // ─── REST API ─────────────────────────────────────────
 app.use('/api', createApiRoutes(world, auth));
 
 // ─── MCP Server ───────────────────────────────────────
-const mcpServer = createMcpServer(world, auth);
-await mountMcpServer(app, mcpServer);
+await mountMcpServer(app, () => createMcpServer(world, auth));
 
 // ─── 静态文件（生产模式）──────────────────────────────
 if (CONFIG.NODE_ENV === 'production') {
