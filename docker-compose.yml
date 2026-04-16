@@ -10,8 +10,10 @@ services:
       - MAX_USERS=${MAX_USERS:-50}
       - TICK_RATE=${TICK_RATE:-20}
     restart: unless-stopped
+    volumes:
+      - ./data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

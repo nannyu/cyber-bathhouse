@@ -53,8 +53,17 @@ export function createMcpServer(world, auth) {
         };
       }
 
-      // 注册
-      const regResult = auth.register(name, 'agent');
+      // 注册（MCP 临时用户：MCP 没有账号体系输入，因此生成临时 username/password）
+      const tempUsername = `mcp_agent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const tempPassword = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+      const regResult = auth.register(
+        tempUsername,
+        tempPassword,
+        name,
+        'agent',
+        'mcp',
+        pet_type,
+      );
       if (!regResult.success) {
         return {
           content: [{ type: 'text', text: `❌ 注册失败：${regResult.error}` }],

@@ -23,7 +23,7 @@ export class AuthManager {
    * @param {string} ip - 客户端 IP
    * @returns {{ success: boolean, token?: string, userId?: string, name?: string, error?: string }}
    */
-  register(username, password, nickname, type, ip) {
+  register(username, password, nickname, type, ip, petType, petNickname) {
     if (!username || username.length < 3 || username.length > 20) {
       return { success: false, error: '用户名必须在 3-20 字符之间', code: 'INVALID_USERNAME' };
     }
@@ -60,11 +60,18 @@ export class AuthManager {
       userId,
       role: 'user',
     });
+    const resolvedPetType = petType && CONFIG.PET_TYPES.includes(petType)
+      ? petType
+      : CONFIG.PET_TYPES[Math.floor(Math.random() * CONFIG.PET_TYPES.length)];
+    const resolvedPetNickname = typeof petNickname === 'string' && petNickname.trim().length > 0
+      ? petNickname.trim()
+      : `${nickname}的宠物`;
+
     this.database.createPetForOwner({
       id: `pet_${uuidv4().slice(0, 8)}`,
       ownerUserId: userId,
-      petType: CONFIG.PET_TYPES[Math.floor(Math.random() * CONFIG.PET_TYPES.length)],
-      petNickname: `${nickname}的宠物`,
+      petType: resolvedPetType,
+      petNickname: resolvedPetNickname,
     });
 
     // 注册后直接签发 Token

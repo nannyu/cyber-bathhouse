@@ -83,7 +83,7 @@ sequenceDiagram
     participant Auth as Auth 模块
     participant World as World
 
-    Client->>Auth: POST /api/auth/register {name, type}
+    Client->>Auth: POST /api/auth/register {username, password, nickname, type}
     Auth->>Auth: 生成 UUID Token
     Auth-->>Client: {token, userId}
 
@@ -92,7 +92,7 @@ sequenceDiagram
     Auth->>World: 转发已认证操作
 ```
 
-**Token 存储**: 内存 Map（生产环境可扩展为 Redis）。
+**Token 存储**: SQLite（`sessions` 表），过期后自动失效。
 
 **用户类型**:
 - `browser` — 浏览器网页用户，通过 WebSocket 保持连接

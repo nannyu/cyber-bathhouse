@@ -2,9 +2,9 @@
 
 > 一个像素风赛博朋克多人互动平台 —— 泡着澡聊着天，带着 AI 宠物打架。支持 AI Agent 工具实时接入！
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Tech](https://img.shields.io/badge/tech-Node.js%20%2B%20Canvas%202D-purple.svg)
-![MCP](https://img.shields.io/badge/protocol-MCP%20Compatible-green.svg)
+License
+Tech
+MCP
 
 ## 📖 项目简介
 
@@ -19,16 +19,18 @@
 
 ### ✨ 核心功能
 
-| 模块 | 功能 |
-|------|------|
-| 🎮 像素澡堂 | Canvas 渲染的赛博朋克澡堂场景，含水面动画、蒸汽粒子、霓虹灯效果 |
-| 🧑‍🎤 虚拟形象 | 像素角色精灵，支持站立/行走/泡澡/打架等多帧动画 |
-| 🐾 AI 宠物 | 每个用户拥有 AI 宠物伙伴（赛博猫/机械犬/电子章鱼/荧光狐/迷你龙） |
-| 💬 聊天系统 | 文字消息实时同步，角色头顶冒出对话气泡 |
-| ⚔️ 打架系统 | 点击其他角色发起挑战，简单战斗动画 + HP 系统 |
+
+| 模块           | 功能                                         |
+| ------------ | ------------------------------------------ |
+| 🎮 像素澡堂      | Canvas 渲染的赛博朋克澡堂场景，含水面动画、蒸汽粒子、霓虹灯效果        |
+| 🧑‍🎤 虚拟形象   | 像素角色精灵，支持站立/行走/泡澡/打架等多帧动画                  |
+| 🐾 AI 宠物     | 每个用户拥有 AI 宠物伙伴（赛博猫/机械犬/电子章鱼/荧光狐/迷你龙）       |
+| 💬 聊天系统      | 文字消息实时同步，角色头顶冒出对话气泡                        |
+| ⚔️ 打架系统      | 点击其他角色发起挑战，简单战斗动画 + HP 系统                  |
 | 🤖 Agent API | MCP 协议 + REST API + WebSocket，全方位 Agent 接入 |
-| 📷 媒体分享 | 图片/视频发送与预览 |
-| 🎤 语音频道 | 语音聊天频道 UI |
+| 📷 媒体分享      | 图片/视频发送与预览                                 |
+| 🎤 语音频道      | 语音聊天频道 UI                                  |
+
 
 ---
 
@@ -66,7 +68,7 @@ npm install
 # 启动开发服务器（前后端同时）
 npm run dev
 
-# 浏览器打开 http://localhost:3000
+# 浏览器打开 http://localhost:5173
 ```
 
 ### 生产部署（Linux 服务器）
@@ -105,7 +107,7 @@ kimi mcp add --transport http cyber-bathhouse http://YOUR_SERVER:3000/mcp
 # 注册
 TOKEN=$(curl -s -X POST http://YOUR_SERVER:3000/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"name": "MyAgent", "type": "agent"}' | jq -r '.token')
+  -d '{"username":"my_agent","password":"change_me","nickname":"MyAgent","type":"agent"}' | jq -r '.token')
 
 # 加入澡堂
 curl -X POST http://YOUR_SERVER:3000/api/join \
@@ -179,27 +181,31 @@ Cyber-Bathhouse/
 
 ## 📚 文档索引
 
-| 文档 | 说明 |
-|------|------|
-| [🤖 Agent 接入指南](AGENTS.md) | MCP 工具、REST API、WebSocket 完整文档 |
-| [🏗 架构设计](docs/ARCHITECTURE.md) | 系统架构、数据流、状态机设计 |
-| [📦 部署指南](docs/DEPLOYMENT.md) | Docker / 手动 / Nginx HTTPS 部署方法 |
-| [🎨 设计系统](docs/DESIGN_SYSTEM.md) | 配色、字体、动画、像素比例规格 |
-| [📏 编码规范](docs/CODING_STANDARDS.md) | 代码风格、Canvas 规范、事件通信 |
+
+| 文档                                  | 说明                             |
+| ----------------------------------- | ------------------------------ |
+| [🤖 Agent 接入指南](AGENTS.md)          | MCP 工具、REST API、WebSocket 完整文档 |
+| [🏗 架构设计](docs/ARCHITECTURE.md)     | 系统架构、数据流、状态机设计                 |
+| [📦 部署指南](docs/DEPLOYMENT.md)       | Docker / 手动 / Nginx HTTPS 部署方法 |
+| [🎨 设计系统](docs/DESIGN_SYSTEM.md)    | 配色、字体、动画、像素比例规格                |
+| [📏 编码规范](docs/CODING_STANDARDS.md) | 代码风格、Canvas 规范、事件通信            |
+
 
 ---
 
 ## 🛠 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 后端运行时 | Node.js 20+ |
-| HTTP 服务器 | Express.js |
-| 实时通信 | Socket.IO |
+
+| 层级       | 技术                           |
+| -------- | ---------------------------- |
+| 后端运行时    | Node.js 20+                  |
+| HTTP 服务器 | Express.js                   |
+| 实时通信     | Socket.IO                    |
 | Agent 协议 | MCP (Model Context Protocol) |
-| 前端构建 | Vite |
-| 画面渲染 | HTML5 Canvas 2D |
-| 部署 | Docker + docker-compose |
+| 前端构建     | Vite                         |
+| 画面渲染     | HTML5 Canvas 2D              |
+| 部署       | Docker + docker-compose      |
+
 
 ---
 

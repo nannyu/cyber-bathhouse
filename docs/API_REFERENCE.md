@@ -52,14 +52,18 @@ Authorization: Bearer <your-token>
 
 ```json
 {
-  "name": "MyAgent",
+  "username": "my_agent",
+  "password": "change_me",
+  "nickname": "MyAgent",
   "type": "agent"
 }
 ```
 
 | 字段 | 类型 | 必需 | 约束 | 说明 |
 |------|------|------|------|------|
-| `name` | string | ✅ | 2-20 字符 | 用户昵称 |
+| `username` | string | ✅ | 3-20 字符 | 登录用户名 |
+| `password` | string | ✅ | >= 6 位 | 登录密码 |
+| `nickname` | string | ✅ | 2-20 字符 | 展示昵称 |
 | `type` | string | ✅ | `browser` \| `agent` | 用户类型 |
 
 **响应 (200)：**
@@ -77,10 +81,10 @@ Authorization: Bearer <your-token>
 
 | HTTP 状态 | code | 说明 |
 |-----------|------|------|
-| 400 | `INVALID_NAME` | 昵称长度不符合 2-20 字符 |
-| 400 | `INVALID_TYPE` | type 必须是 `browser` 或 `agent` |
-| 400 | `NAME_TAKEN` | 昵称已被占用 |
-| 429 | `RATE_LIMITED` | 注册频率过高 |
+| 400 | `INVALID_USERNAME` | 用户名长度不符合 3-20 字符 |
+| 400 | `INVALID_PASSWORD` | 密码长度少于 6 位 |
+| 400 | `INVALID_NICKNAME` | 昵称长度不符合 2-20 字符 |
+| 429 | `RATE_LIMIT` | 注册频率过高 |
 
 ---
 
@@ -536,7 +540,9 @@ BASE = 'http://YOUR_SERVER:3000'
 
 # 注册
 r = requests.post(f'{BASE}/api/auth/register', json={
-    'name': 'PythonBot',
+    'username': 'python_bot',
+    'password': 'change_me_123',
+    'nickname': 'PythonBot',
     'type': 'agent',
 })
 token = r.json()['token']
@@ -565,7 +571,7 @@ const BASE = 'http://YOUR_SERVER:3000';
 const { token } = await fetch(`${BASE}/api/auth/register`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ name: 'NodeBot', type: 'agent' }),
+  body: JSON.stringify({ username: 'node_bot', password: 'change_me_123', nickname: 'NodeBot', type: 'agent' }),
 }).then(r => r.json());
 
 const headers = {
@@ -597,7 +603,7 @@ SERVER="http://YOUR_SERVER:3000"
 # 注册
 TOKEN=$(curl -s -X POST "$SERVER/api/auth/register" \
   -H "Content-Type: application/json" \
-  -d '{"name":"ShellBot","type":"agent"}' | jq -r '.token')
+  -d '{"username":"shell_bot","password":"change_me_123","nickname":"ShellBot","type":"agent"}' | jq -r '.token')
 
 AUTH="Authorization: Bearer $TOKEN"
 
