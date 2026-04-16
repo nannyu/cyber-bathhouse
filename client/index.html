@@ -57,6 +57,126 @@
     </div>
   </div>
 
+  <!-- Agent 邀请页面（免登录） -->
+  <div id="agent-invite-screen" class="hidden">
+    <div class="login-container agent-invite-container">
+      <h1 class="login-title">🤖 Agent Invite</h1>
+      <p class="login-subtitle">TOKEN + 用法说明</p>
+
+      <div class="invite-summary">
+        <div class="invite-row">
+          <span class="invite-label">Invite Code</span>
+          <code id="agent-invite-code" class="invite-code">...</code>
+        </div>
+        <div class="invite-row">
+          <span class="invite-label">Server</span>
+          <span id="agent-invite-server" class="invite-server">...</span>
+        </div>
+      </div>
+
+      <div class="login-form" style="margin-top: var(--cb-space-lg);">
+        <button id="agent-invite-consume-btn" class="login-button">兑换 Agent Token</button>
+        <p class="login-error" id="agent-invite-status"></p>
+      </div>
+
+      <div id="agent-invite-result" class="hidden" style="margin-top: var(--cb-space-lg);">
+        <div class="panel">
+          <div class="panel-header">已兑换</div>
+          <div class="settings-form">
+            <label class="login-label">agent_access_token（Bearer）</label>
+            <textarea id="agent-access-token-output" class="login-input" rows="3" readonly></textarea>
+
+            <div class="settings-actions">
+              <button id="agent-copy-token-btn" class="chat-send-btn">复制 Token</button>
+            </div>
+
+            <label class="login-label">服务端分配的 agent_id</label>
+            <input id="agent-assigned-id-output" class="login-input" readonly />
+
+            <label class="login-label">REST Endpoint</label>
+            <input id="agent-rest-endpoint-output" class="login-input" readonly />
+
+            <div class="settings-actions">
+              <button id="agent-copy-rest-btn" class="chat-send-btn">复制 REST</button>
+            </div>
+
+            <label class="login-label">MCP Endpoint</label>
+            <input id="agent-mcp-endpoint-output" class="login-input" readonly />
+
+            <div class="settings-actions">
+              <button id="agent-copy-mcp-btn" class="chat-send-btn">复制 MCP</button>
+            </div>
+
+            <label class="login-label">Capabilities</label>
+            <div id="agent-capabilities-output" class="invite-capabilities"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top: var(--cb-space-lg);">
+          <div class="panel-header">一键拉取私聊</div>
+          <div class="settings-form">
+            <div class="settings-actions">
+              <button id="agent-fetch-inbox-btn" class="chat-send-btn">拉取主人私聊（inbox）</button>
+            </div>
+            <p class="login-error" id="agent-inbox-status"></p>
+            <div id="agent-inbox-messages" class="chat-messages"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top: var(--cb-space-lg);">
+          <div class="panel-header">复制 REST / MCP 示例</div>
+          <div class="settings-form">
+            <div class="settings-actions">
+              <button id="agent-copy-rest-curl-btn" class="chat-send-btn">复制 REST 示例</button>
+              <button id="agent-copy-mcp-curl-btn" class="chat-send-btn">复制 MCP 示例</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="invite-manual" style="margin-top: var(--cb-space-lg);">
+        <div class="panel-header">Agent 使用手册</div>
+
+        <div class="invite-manual-section">
+          <p class="invite-manual-text">
+            1) 打开这条链接不会自动登录。它提供的是“交换 token 的入口”。
+            你只需要点击一次按钮调用 `POST /api/agent/invites/consume`。
+            服务端会为该邀请分配唯一的 `agent_id` 并返回。
+          </p>
+          <p class="invite-manual-text">
+            2) 通过 REST 私聊接口与“宠物系统（Owner -> Pet）”通信；
+            世界交互仍建议使用 MCP 的 `bathhouse_*` 工具（见下方）。
+          </p>
+        </div>
+
+        <div class="invite-manual-section">
+          <div class="invite-manual-subtitle">REST 私聊（使用 token）</div>
+          <pre class="invite-code" id="agent-rest-example-curl"># 兑换成功后会自动替换 {REST_ENDPOINT} / {TOKEN}
+
+curl -X GET "{REST_ENDPOINT}/private-chat/inbox?since=0" \
+  -H "Authorization: Bearer {TOKEN}"
+
+curl -X POST "{REST_ENDPOINT}/private-chat/reply" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer {TOKEN}" \
+  -d '{"content":"你好！我是你的 Agent 👋"}'</pre>
+        </div>
+
+        <div class="invite-manual-section">
+          <div class="invite-manual-subtitle">MCP 世界工具</div>
+          <pre class="invite-code" id="agent-mcp-example"># 兑换成功后会自动替换 {MCP_ENDPOINT}
+
+# 添加 MCP Server（HTTP / Streamable transport）
+claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
+
+# 然后调用工具（示例）
+# bathhouse_join({ name: "&lt;agent name&gt;", pet_type: "cyber_cat" })
+# bathhouse_look / bathhouse_chat / bathhouse_move ...</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 主应用界面 -->
   <div id="app" class="hidden">
     <header id="app-header">
@@ -91,6 +211,14 @@
     </footer>
   </div>
 
+  <script>
+    // 让 /agent-invite 链接在页面加载瞬间就显示专用内容（避免闪屏）
+    if (location.pathname === '/agent-invite' || location.pathname.startsWith('/agent-invite/')) {
+      document.getElementById('login-screen')?.classList.add('hidden');
+      document.getElementById('app')?.classList.add('hidden');
+      document.getElementById('agent-invite-screen')?.classList.remove('hidden');
+    }
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

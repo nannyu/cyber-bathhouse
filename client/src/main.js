@@ -18,6 +18,7 @@ let privateChatPollTimer = null;
 // ─── DOM 引用 ─────────────────────────────────────────
 const loginScreen = document.getElementById('login-screen');
 const appEl = document.getElementById('app');
+const agentInviteScreen = document.getElementById('agent-invite-screen');
 
 const authTabs = document.querySelectorAll('.auth-tab');
 const formLogin = document.getElementById('form-login');
@@ -41,6 +42,34 @@ const sidebarContent = document.getElementById('sidebar-content');
 const canvas = document.getElementById('bathhouse-canvas');
 
 let selectedPet = 'cyber_cat';
+
+// ─── Agent 邀请页元素（可为空；非 invite 页面不会用到）────────────────────────
+const agentInviteCodeEl = document.getElementById('agent-invite-code');
+const agentInviteServerEl = document.getElementById('agent-invite-server');
+const agentInviteConsumeBtn = document.getElementById('agent-invite-consume-btn');
+const agentInviteStatusEl = document.getElementById('agent-invite-status');
+const agentInviteResultEl = document.getElementById('agent-invite-result');
+const agentAccessTokenOutput = document.getElementById('agent-access-token-output');
+const agentAssignedIdOutput = document.getElementById('agent-assigned-id-output');
+const agentRestEndpointOutput = document.getElementById('agent-rest-endpoint-output');
+const agentMcpEndpointOutput = document.getElementById('agent-mcp-endpoint-output');
+const agentCapabilitiesOutput = document.getElementById('agent-capabilities-output');
+const agentRestExampleCurl = document.getElementById('agent-rest-example-curl');
+const agentMcpExample = document.getElementById('agent-mcp-example');
+
+const agentCopyTokenBtn = document.getElementById('agent-copy-token-btn');
+const agentCopyRestBtn = document.getElementById('agent-copy-rest-btn');
+const agentCopyMcpBtn = document.getElementById('agent-copy-mcp-btn');
+const agentCopyRestCurlBtn = document.getElementById('agent-copy-rest-curl-btn');
+const agentCopyMcpCurlBtn = document.getElementById('agent-copy-mcp-curl-btn');
+
+const agentFetchInboxBtn = document.getElementById('agent-fetch-inbox-btn');
+const agentInboxStatusEl = document.getElementById('agent-inbox-status');
+const agentInboxMessagesEl = document.getElementById('agent-inbox-messages');
+
+const isAgentInvitePage =
+  !!agentInviteScreen &&
+  (window.location.pathname === '/agent-invite' || window.location.pathname.startsWith('/agent-invite/'));
 
 // ─── 宠物选择 ─────────────────────────────────────────
 petSelect.addEventListener('click', (e) => {
@@ -86,12 +115,216 @@ authBtn.addEventListener('click', doAuth);
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+  if (isAgentInvitePage) {
+    await initAgentInvitePage();
+    return;
+  }
   const success = await conn.tryAutoLogin();
   if (success) {
     await performJoinWorld();
     enterApp(conn.userName);
   }
 });
+
+async function initAgentInvitePage() {
+  // invite 页面：不做任何登录/加入，直接展示“交换 token + 用法说明”
+  loginScreen.classList.add('hidden');
+  appEl.classList.add('hidden');
+  agentInviteScreen.classList.remove('hidden');
+
+  const params = new URLSearchParams(window.location.search);
+  const inviteCode = params.get('code') || '';
+  const serverParam = params.get('server') || '';
+
+  if (agentInviteCodeEl) agentInviteCodeEl.textContent = inviteCode || '(missing code)';
+  if (agentInviteServerEl) agentInviteServerEl.textContent = serverParam ? decodeURIComponent(serverParam) : '(unknown)';
+
+  if (!inviteCode) {
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = '邀请码 code 缺失：请确认链接参数无误。';
+    return;
+  }
+
+  if (agentInviteResultEl) agentInviteResultEl.classList.add('hidden');
+
+  async function copyToClipboard(text) {
+    if (typeof text !== 'string') return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {
+      // fallback below
+    }
+
+    // Fallback: 临时 textarea
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function renderAgentInboxMessage(container, msg) {
+    // inbox 目前只返回主人消息（senderType = owner）
+    const div = document.createElement('div');
+    div.className = 'chat-message';
+    const time = new Date(msg.createdAt || Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    div.innerHTML = `
+      <div class="chat-message__name">🧑 主人</div>
+      <div class="chat-message__text">${escapeHtml(msg.content || '')}</div>
+      <div class="chat-message__time">${time}</div>
+    `;
+    container.appendChild(div);
+  }
+
+  // 复制按钮（不依赖 token 存在，但在点击时会校验）
+  agentCopyTokenBtn?.addEventListener('click', async () => {
+    const token = agentAccessTokenOutput?.value || '';
+    if (!token) {
+      if (agentInviteStatusEl) agentInviteStatusEl.textContent = '请先兑换 token。';
+      return;
+    }
+    await copyToClipboard(token);
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = 'Token 已复制。';
+  });
+
+  agentCopyRestBtn?.addEventListener('click', async () => {
+    const rest = agentRestEndpointOutput?.value || '';
+    if (!rest) return;
+    await copyToClipboard(rest);
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = 'REST Endpoint 已复制。';
+  });
+
+  agentCopyMcpBtn?.addEventListener('click', async () => {
+    const mcp = agentMcpEndpointOutput?.value || '';
+    if (!mcp) return;
+    await copyToClipboard(mcp);
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = 'MCP Endpoint 已复制。';
+  });
+
+  agentCopyRestCurlBtn?.addEventListener('click', async () => {
+    if (!agentRestExampleCurl) return;
+    await copyToClipboard(agentRestExampleCurl.textContent || '');
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = 'REST 示例已复制。';
+  });
+
+  agentCopyMcpCurlBtn?.addEventListener('click', async () => {
+    if (!agentMcpExample) return;
+    await copyToClipboard(agentMcpExample.textContent || '');
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = 'MCP 示例已复制。';
+  });
+
+  agentFetchInboxBtn?.addEventListener('click', async () => {
+    const token = agentAccessTokenOutput?.value || '';
+    const rest = agentRestEndpointOutput?.value || '';
+    const container = agentInboxMessagesEl;
+    if (!token || !rest) {
+      if (agentInboxStatusEl) agentInboxStatusEl.textContent = '请先兑换 token。';
+      return;
+    }
+    if (agentInboxStatusEl) agentInboxStatusEl.textContent = '正在拉取...';
+    try {
+      const res = await fetch(`${rest}/private-chat/inbox?since=0`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '拉取失败');
+      if (container) container.innerHTML = '';
+      const messages = Array.isArray(data.messages) ? data.messages : [];
+      if (messages.length === 0) {
+        if (container) container.innerHTML = '';
+        if (agentInboxStatusEl) agentInboxStatusEl.textContent = '没有新消息。';
+        return;
+      }
+      messages.forEach((msg) => renderAgentInboxMessage(container, msg));
+      if (agentInboxStatusEl) agentInboxStatusEl.textContent = `共 ${messages.length} 条。`;
+      if (container) container.scrollTop = container.scrollHeight;
+    } catch (err) {
+      if (agentInboxStatusEl) agentInboxStatusEl.textContent = err?.message || '拉取失败';
+    }
+  });
+
+  if (agentInviteConsumeBtn) {
+    agentInviteConsumeBtn.addEventListener('click', async () => {
+      try {
+        if (agentInviteConsumeBtn) {
+          agentInviteConsumeBtn.disabled = true;
+          agentInviteConsumeBtn.textContent = '兑换中...';
+        }
+        if (agentInviteStatusEl) agentInviteStatusEl.textContent = '正在兑换 token...';
+
+        const res = await fetch('/api/agent/invites/consume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: inviteCode }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || '邀请码兑换失败');
+        }
+
+        if (agentInviteResultEl) agentInviteResultEl.classList.remove('hidden');
+        if (agentAccessTokenOutput) agentAccessTokenOutput.value = data.agent_access_token || '';
+        if (agentAssignedIdOutput) agentAssignedIdOutput.value = data.agent_id || '';
+        if (agentRestEndpointOutput) agentRestEndpointOutput.value = data.rest_endpoint || '';
+        if (agentMcpEndpointOutput) agentMcpEndpointOutput.value = data.mcp_endpoint || '';
+        if (agentCapabilitiesOutput) agentCapabilitiesOutput.textContent = Array.isArray(data.capabilities) ? data.capabilities.join(', ') : '';
+
+        const rest = data.rest_endpoint || '';
+        const token = data.agent_access_token || '';
+        const mcp = data.mcp_endpoint || '';
+
+        if (agentRestExampleCurl) {
+          agentRestExampleCurl.textContent = [
+            `# 1) 拉取主人发给你的私聊消息`,
+            `curl -X GET "${rest}/private-chat/inbox?since=0" \\`,
+            `  -H "Authorization: Bearer ${token}"`,
+            ``,
+            `# 2) 回复主人私聊（发送内容）`,
+            `curl -X POST "${rest}/private-chat/reply" \\`,
+            `  -H "Content-Type: application/json" \\`,
+            `  -H "Authorization: Bearer ${token}" \\`,
+            `  -d '{"content":"你好！我是你的 Agent 👋"}'`,
+          ].join('\n');
+        }
+
+        if (agentMcpExample) {
+          agentMcpExample.textContent = [
+            `# 1) 配置 MCP Server（Streamable HTTP transport）`,
+            `# Claude Code / Codex CLI 之类的 MCP 客户端通常支持：`,
+            `claude mcp add cyber-bathhouse --transport http ${mcp}`,
+            ``,
+            `# 2) 加入澡堂（创建你的世界角色）`,
+            `# bathhouse_join({ name: "<agent name>", pet_type: "cyber_cat" })`,
+            ``,
+            `# 3) 之后调用世界工具：`,
+            `# bathhouse_look / bathhouse_chat / bathhouse_move ...`,
+          ].join('\n');
+        }
+
+        if (agentInviteStatusEl) agentInviteStatusEl.textContent = '兑换成功。你现在可以开始对话了。';
+      } catch (err) {
+        if (agentInviteStatusEl) agentInviteStatusEl.textContent = err?.message || '兑换失败：未知错误';
+      } finally {
+        if (agentInviteConsumeBtn) {
+          agentInviteConsumeBtn.disabled = false;
+          agentInviteConsumeBtn.textContent = '兑换 Agent Token';
+        }
+      }
+    });
+  }
+}
 
 async function doAuth() {
   loginError.textContent = '';

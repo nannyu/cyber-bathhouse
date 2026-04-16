@@ -54,6 +54,10 @@ export const CONFIG = {
   // 密码哈希
   BCRYPT_ROUNDS: parseInt(process.env.BCRYPT_ROUNDS || '10', 10),
 
+  // 对外可访问的基础地址（用于生成 agent 的 rest/mcp endpoint）
+  // 例如：PUBLIC_BASE_URL=https://bath.0089757.xyz
+  PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || '',
+
   // 速率限制
   RATE_LIMIT_PER_SECOND: 5,
 

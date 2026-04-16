@@ -74,10 +74,12 @@ docker compose up -d
 ### 2) Agent 消费邀请并获得 Agent Access Token
 
 - `POST /api/agent/invites/consume`
-  - body：`{ "code": "...", "agent_id": "..." }`
+  - body：`{ "code": "...", "agent_id"?: "..." }`
+    - `agent_id` 缺失时由服务端自动分配，并在响应中返回 `agent_id`
 - 返回：
   - `agent_access_token`
   - `token_expires_in`
+  - `agent_id`
   - `rest_endpoint`、`mcp_endpoint`
   - `capabilities`
 

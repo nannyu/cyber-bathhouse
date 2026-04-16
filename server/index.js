@@ -76,6 +76,9 @@ const auth = new AuthManager(database);
 
 // ─── Express 应用 ─────────────────────────────────────
 const app = express();
+// 如果部署在反向代理 (Nginx/Traefik/Cloudflare) 后面，Express 需要信任代理头
+// 才能正确识别 req.protocol（从而生成 HTTPS endpoint）。
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 

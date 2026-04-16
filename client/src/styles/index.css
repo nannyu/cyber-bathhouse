@@ -296,6 +296,94 @@ html, body {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   🤖 Agent 邀请页
+   ═══════════════════════════════════════════════════════════ */
+#agent-invite-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(0, 240, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 80%, rgba(184, 41, 221, 0.08) 0%, transparent 50%),
+    var(--cb-bg-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: loginFadeIn 0.6s ease-out;
+}
+
+.agent-invite-container {
+  width: 760px;
+  max-width: 94vw;
+  padding: var(--cb-space-xl) 40px;
+}
+
+.invite-summary {
+  display: grid;
+  gap: var(--cb-space-md);
+  margin-bottom: var(--cb-space-lg);
+}
+
+.invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cb-space-md);
+  padding: var(--cb-space-sm) var(--cb-space-md);
+  background: rgba(26, 26, 46, 0.6);
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  border-radius: var(--cb-radius-md);
+}
+
+.invite-label {
+  color: var(--cb-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.invite-code {
+  font-family: var(--cb-font-pixel);
+  color: var(--cb-text-primary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.invite-manual {
+  padding-top: var(--cb-space-md);
+}
+
+.invite-manual-section {
+  margin-top: var(--cb-space-lg);
+}
+
+.invite-manual-subtitle {
+  color: var(--cb-neon-blue);
+  font-family: var(--cb-font-pixel);
+  font-size: 11px;
+  margin-bottom: var(--cb-space-sm);
+}
+
+.invite-manual-text {
+  color: var(--cb-text-secondary);
+}
+
+pre.invite-code {
+  max-height: 280px;
+  overflow: auto;
+  background: rgba(2, 2, 15, 0.55);
+  border: 1px solid rgba(0, 240, 255, 0.14);
+  border-radius: var(--cb-radius-md);
+  padding: var(--cb-space-md) var(--cb-space-lg);
+}
+
+.invite-capabilities {
+  font-family: var(--cb-font-ui);
+  color: var(--cb-text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════════════
    🎮 主应用
    ═══════════════════════════════════════════════════════════ */
 

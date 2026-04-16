@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { CONFIG } from '../config.js';
 
 /**
  * 创建 API 路由
@@ -83,7 +84,10 @@ export function createApiRoutes(world, auth) {
   router.use((req, res, next) => {
     const isPublicAgentEndpoint =
       req.path === '/agent/spec' ||
-      req.path === '/agent/invites/consume';
+      req.path === '/agent/invites/consume' ||
+      // agent token 专用接口：需要走下面的 agentAuth 中间件
+      req.path === '/agent/private-chat/inbox' ||
+      req.path === '/agent/private-chat/reply';
     if (isPublicAgentEndpoint) {
       return next();
     }
@@ -326,6 +330,7 @@ export function createApiRoutes(world, auth) {
   });
 
   router.post('/agent/invites', (req, res) => {
+    const baseUrl = CONFIG.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const pet = auth.database.getPetByOwnerUserId(req.userId);
     if (!pet) {
       return res.status(404).json({ success: false, error: '未找到宠物', code: 'PET_NOT_FOUND' });
@@ -342,7 +347,7 @@ export function createApiRoutes(world, auth) {
       usedCount: 0,
       createdAt: now,
     });
-    const inviteUrl = `${req.protocol}://${req.get('host')}/agent-invite?code=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(`${req.protocol}://${req.get('host')}`)}`;
+    const inviteUrl = `${baseUrl}/agent-invite?code=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(baseUrl)}`;
     res.json({ success: true, inviteUrl, expiresAt: now + INVITE_TTL_MS, petCode: pet.petCode });
   });
 
@@ -460,10 +465,18 @@ export function createApiRoutes(world, auth) {
 
   // ─── Agent 接入路由（无需普通用户 token）────────────────────
   router.post('/agent/invites/consume', (req, res) => {
+    const baseUrl = CONFIG.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const { code, agent_id } = req.body || {};
-    if (!code || !agent_id) {
-      return res.status(400).json({ success: false, error: '缺少 code 或 agent_id', code: 'INVALID_PARAMS' });
+    if (!code) {
+      return res.status(400).json({ success: false, error: '缺少 code', code: 'INVALID_PARAMS' });
     }
+
+    // agent_id 不由 Agent/调用方自己生成：缺失时由服务端分配唯一标识。
+    const assignedAgentId =
+      typeof agent_id === 'string' && agent_id.trim().length > 0
+        ? agent_id.trim()
+        : `agent_${crypto.randomBytes(8).toString('hex')}`;
+
     const invite = auth.database.getAgentInviteByCodeHash(hashInviteCode(code));
     if (!invite) {
       return res.status(404).json({ success: false, error: '邀请码无效', code: 'INVITE_INVALID' });
@@ -479,7 +492,7 @@ export function createApiRoutes(world, auth) {
       id: `bind_${uuidv4().slice(0, 8)}`,
       petId: invite.petId,
       ownerUserId: invite.ownerUserId,
-      agentId: String(agent_id),
+      agentId: assignedAgentId,
       status: 'active',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -492,7 +505,7 @@ export function createApiRoutes(world, auth) {
       token,
       ownerUserId: invite.ownerUserId,
       petId: invite.petId,
-      agentId: String(agent_id),
+      agentId: assignedAgentId,
       expiresAt: Date.now() + AGENT_TOKEN_TTL_MS,
       createdAt: Date.now(),
     });
@@ -502,8 +515,9 @@ export function createApiRoutes(world, auth) {
       success: true,
       agent_access_token: token,
       token_expires_in: AGENT_TOKEN_TTL_MS,
-      rest_endpoint: `${req.protocol}://${req.get('host')}/api/agent`,
-      mcp_endpoint: `${req.protocol}://${req.get('host')}/mcp`,
+      agent_id: assignedAgentId,
+      rest_endpoint: `${baseUrl}/api/agent`,
+      mcp_endpoint: `${baseUrl}/mcp`,
       capabilities: ['private_chat.receive', 'private_chat.reply', 'world.look'],
       pet,
     });
