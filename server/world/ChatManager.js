@@ -6,9 +6,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
 
 export class ChatManager {
-  constructor() {
+  constructor(database) {
+    this.database = database;
+
     /** @type {Array<Object>} 消息历史 */
-    this._messages = [];
+    this._messages = this.database.getRecentMessages(CONFIG.MESSAGE_HISTORY_SIZE);
   }
 
   /**
@@ -28,11 +30,13 @@ export class ChatManager {
     };
 
     this._messages.push(msg);
+    this.database.saveMessage(msg);
 
     // 保留最近 N 条
     if (this._messages.length > CONFIG.MESSAGE_HISTORY_SIZE) {
       this._messages.shift();
     }
+    this.database.trimMessages(CONFIG.MESSAGE_HISTORY_SIZE);
 
     return msg;
   }

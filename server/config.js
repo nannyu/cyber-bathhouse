@@ -12,12 +12,23 @@ export const CONFIG = {
   WORLD_HEIGHT: 500,
 
   // 池子范围
-  POOL: {
-    x: 150,
-    y: 200,
-    width: 500,
-    height: 200,
+  POOL: { x: 160, y: 220, width: 440, height: 200 },
+
+  // 新增区域边界
+  ZONES: {
+    CHANGING_AREA: { x: 20, y: 80, width: 120, height: 100 },
+    VANITY_AREA: { x: 160, y: 80, width: 120, height: 80 },
+    SHOWER_AREA: { x: 20, y: 220, width: 100, height: 180 },
+    SAUNA_AREA: { x: 640, y: 80, width: 140, height: 120 },
+    LOUNGE_AREA: { x: 620, y: 280, width: 160, height: 120 },
+    SCRUB_AREA: { x: 320, y: 80, width: 240, height: 100 },
   },
+  
+  // 搓澡床位
+  SCRUB_BEDS: [
+    { id: 'bed1', box: { x: 330, y: 90, width: 80, height: 60 }, occupied: false },
+    { id: 'bed2', box: { x: 440, y: 90, width: 80, height: 60 }, occupied: false },
+  ],
 
   // Tick 频率 (Hz)
   TICK_RATE: parseInt(process.env.TICK_RATE || '20', 10),
@@ -36,6 +47,12 @@ export const CONFIG = {
 
   // Token
   TOKEN_EXPIRY: parseInt(process.env.TOKEN_EXPIRY || '86400000', 10), // 24 小时
+
+  // 数据库
+  DB_PATH: process.env.DB_PATH || './data/cyber-bathhouse.sqlite',
+
+  // 密码哈希
+  BCRYPT_ROUNDS: parseInt(process.env.BCRYPT_ROUNDS || '10', 10),
 
   // 速率限制
   RATE_LIMIT_PER_SECOND: 5,

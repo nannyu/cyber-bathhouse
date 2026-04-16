@@ -12,6 +12,8 @@ const STATES = {
   SOAKING: 'soaking',
   TALKING: 'talking',
   FIGHTING: 'fighting',
+  SAUNA: 'sauna',
+  SCRUBBING: 'scrubbing',
 };
 
 export class User {
@@ -59,6 +61,9 @@ export class User {
     this.joinedAt = Date.now();
     this.lastActive = Date.now();
 
+    // 回血计时器
+    this._healTimer = 0;
+
     // 战斗引用
     this.fightId = null;
   }
@@ -80,12 +85,24 @@ export class User {
         // 到达
         this.x = this.targetX;
         this.y = this.targetY;
-        this._checkPoolState();
+        this._checkZoneState();
       } else {
         const speed = CONFIG.MOVE_SPEED * (dt / 1000);
         const ratio = Math.min(speed / dist, 1);
         this.x += dx * ratio;
         this.y += dy * ratio;
+      }
+    }
+
+    // 区域恢复生命值逻辑
+    if (this.state === STATES.SAUNA || this.state === STATES.SCRUBBING || this.state === STATES.SOAKING) {
+      this._healTimer += dt;
+      if (this._healTimer >= 1000) { // 每秒回血
+        this._healTimer = 0;
+        if (this.hp < CONFIG.FIGHT.MAX_HP) {
+          let healAmount = this.state === STATES.SCRUBBING ? 5 : (this.state === STATES.SAUNA ? 3 : 1);
+          this.hp = Math.min(CONFIG.FIGHT.MAX_HP, this.hp + healAmount);
+        }
       }
     }
 
@@ -96,7 +113,7 @@ export class User {
         this._bubbleText = null;
         // 恢复到合适的状态
         if (this.state === STATES.TALKING) {
-          this._checkPoolState();
+          this._checkZoneState();
         }
       }
     }
@@ -161,9 +178,29 @@ export class User {
   }
 
   /**
-   * 检查是否在池子范围内，自动切换泡澡状态
+   * 检查所处区域自动切换状态
    */
-  _checkPoolState() {
+  _checkZoneState() {
+    if (this.state === STATES.FIGHTING) return;
+
+    // 桑拿区
+    const sauna = CONFIG.ZONES.SAUNA_AREA;
+    if (sauna && this.x >= sauna.x && this.x <= sauna.x + sauna.width &&
+        this.y >= sauna.y && this.y <= sauna.y + sauna.height) {
+      this.state = STATES.SAUNA;
+      return;
+    }
+
+    // 搓澡床
+    for (const bed of CONFIG.SCRUB_BEDS) {
+      const b = bed.box;
+      if (this.x >= b.x && this.x <= b.x + b.width &&
+          this.y >= b.y && this.y <= b.y + b.height) {
+        this.state = STATES.SCRUBBING;
+        return;
+      }
+    }
+
     const pool = CONFIG.POOL;
     const inPool = this.x >= pool.x && this.x <= pool.x + pool.width &&
                    this.y >= pool.y && this.y <= pool.y + pool.height;

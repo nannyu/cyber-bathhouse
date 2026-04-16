@@ -148,6 +148,30 @@ html, body {
   margin-bottom: var(--cb-space-xl);
 }
 
+.auth-tabs {
+  display: flex;
+  margin-bottom: var(--cb-space-lg);
+  border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+}
+
+.auth-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: var(--cb-space-sm) 0;
+  color: var(--cb-text-muted);
+  font-family: var(--cb-font-pixel);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.auth-tab.active {
+  color: var(--cb-neon-blue);
+  box-shadow: inset 0 -2px 0 var(--cb-neon-blue);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+}
+
 .login-form {
   display: flex;
   flex-direction: column;
@@ -566,6 +590,49 @@ html, body {
   text-align: center;
   max-width: 260px;
   line-height: 1.6;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cb-space-sm);
+  padding: var(--cb-space-md);
+}
+
+.settings-actions {
+  display: flex;
+  gap: var(--cb-space-sm);
+}
+
+.admin-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cb-space-md);
+  padding: var(--cb-space-md);
+}
+
+.admin-grid h4 {
+  color: var(--cb-neon-blue);
+  font-size: 12px;
+}
+
+.admin-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--cb-space-md);
+  padding: var(--cb-space-sm);
+  background: var(--cb-bg-card);
+  border-radius: var(--cb-radius-sm);
+  margin-bottom: 6px;
+}
+
+.admin-role-select {
+  background: var(--cb-bg-input);
+  color: var(--cb-text-primary);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: var(--cb-radius-sm);
+  padding: 4px 6px;
 }
 
 /* ─── 底部栏 ──────────────────────────────────────────── */

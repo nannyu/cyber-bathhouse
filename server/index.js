@@ -9,7 +9,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve, isAbsolute } from 'path';
 
 import { CONFIG } from './config.js';
 import { World } from './world/World.js';
@@ -17,13 +17,18 @@ import { AuthManager } from './api/auth.js';
 import { createApiRoutes } from './api/routes.js';
 import { initWebSocket } from './api/websocket.js';
 import { createMcpServer, mountMcpServer } from './mcp/index.js';
+import { Database } from './db/Database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // ─── 实例化核心模块 ───────────────────────────────────
-const world = new World();
-const auth = new AuthManager();
+const databasePath = isAbsolute(CONFIG.DB_PATH)
+  ? CONFIG.DB_PATH
+  : resolve(__dirname, '..', CONFIG.DB_PATH);
+const database = new Database(databasePath);
+const world = new World(database);
+const auth = new AuthManager(database);
 
 // ─── Express 应用 ─────────────────────────────────────
 const app = express();

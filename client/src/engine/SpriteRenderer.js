@@ -22,6 +22,16 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
   ctx.save();
   ctx.translate(Math.floor(x), Math.floor(y));
 
+  if (state === 'scrubbing' || state === 'defeated') {
+    ctx.translate(30, 32);
+    ctx.rotate(state === 'defeated' ? Math.PI / 2 : -Math.PI / 2); // 战败向右倒
+    ctx.translate(-30, -32);
+  }
+
+  if (state === 'victory') {
+    ctx.translate(0, frame % 4 < 2 ? -6 : 0);
+  }
+
   const { hair, skin, shorts } = palette;
   const f = frame % 2;
   const bounce = state === 'idle' ? (f === 0 ? 0 : -1) : 0;

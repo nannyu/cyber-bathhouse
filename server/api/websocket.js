@@ -63,8 +63,8 @@ export function initWebSocket(io, world, auth) {
         case 'fight':
           world.processFight(socket.userId, data.targetName);
           break;
-        case 'attack':
-          world.processAttack(socket.userId);
+        case 'flee':
+          world.processFlee(socket.userId);
           break;
         case 'pet':
           world.processPet(socket.userId, data.action);

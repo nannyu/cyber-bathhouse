@@ -9,12 +9,14 @@ import { ChatManager } from './ChatManager.js';
 import { FightManager } from './FightManager.js';
 
 export class World {
-  constructor() {
+  constructor(database) {
+    this.database = database;
+
     /** @type {Map<string, User>} userId → User */
     this.users = new Map();
 
     /** @type {ChatManager} */
-    this.chatManager = new ChatManager();
+    this.chatManager = new ChatManager(database);
 
     /** @type {FightManager} */
     this.fightManager = new FightManager();
@@ -24,6 +26,33 @@ export class World {
 
     /** @type {Function|null} 事件回调 */
     this._eventFn = null;
+
+    /** @type {Map<string, number>} 胜场记录 */
+    this.leaderboard = new Map(
+      this.database.getLeaderboard().map((entry) => [entry.name, entry.wins]),
+    );
+
+    // 延迟初始化 NPC
+    setTimeout(() => this.initNPCs(), 100);
+  }
+
+  /**
+   * 初始化 NPC 们
+   */
+  initNPCs() {
+    this.addUser({
+      id: 'npc_scrubber',
+      name: '王师傅',
+      type: 'agent',
+      petType: 'cyber_cat'
+    });
+    const npc = this.getUser('npc_scrubber');
+    if (npc) {
+      npc.x = 410;
+      npc.y = 110;
+      npc.targetX = 410;
+      npc.targetY = 110;
+    }
   }
 
   /**
@@ -244,55 +273,50 @@ export class World {
   }
 
   /**
-   * 处理攻击
+   * 处理逃跑/取消战斗
    * @param {string} userId
    */
-  processAttack(userId) {
-    const atkResult = this.fightManager.performAttack(userId);
-    if (!atkResult.success) return atkResult;
+  processFlee(userId) {
+    const user = this.users.get(userId);
+    if (!user || !user.fightId) return { success: false, error: '不在战斗中' };
 
-    const attacker = this.users.get(atkResult.myId);
-    const defender = this.users.get(atkResult.opponentId);
+    const fight = this.fightManager._fights.get(user.fightId);
+    if (!fight) return { success: false };
 
-    if (!attacker || !defender) {
-      return { success: false, error: '对手已离线', code: 'TARGET_NOT_FOUND' };
+    // 找赢家
+    const winnerId = fight.attackerId === userId ? fight.defenderId : fight.attackerId;
+    const winner = this.users.get(winnerId);
+    
+    if (winner) {
+      winner.hp = CONFIG.FIGHT.MAX_HP;
+      winner.fightId = null;
+      winner.state = 'idle';
+      winner._checkZoneState();
+      const wins = (this.leaderboard.get(winner.name) || 0) + 1;
+      this.leaderboard.set(winner.name, wins);
+      this.database.addWin(winner.name);
     }
-
-    const result = this.fightManager.applyDamage(attacker, defender);
-    if (!result) return { success: false, error: '战斗异常', code: 'FIGHT_ERROR' };
-
-    // 广播战斗事件
-    if (result.finished) {
-      this._broadcast('fight:ended', {
-        fightId: result.fightId,
-        winnerId: result.winnerId,
-        winnerName: result.winnerName,
-        loserName: result.loserName,
-      });
+    
+    user.fightId = null;
+    user.state = 'idle';
+    if (user.id.startsWith('npc_')) {
+      user.hp = CONFIG.FIGHT.MAX_HP;
     } else {
-      this._broadcast('fight:hit', {
-        fightId: result.fightId,
-        attackerName: result.attackerName,
-        defenderName: result.defenderName,
-        damage: result.attackerDamage,
-        counterDamage: result.counterDamage,
-        attackerHp: result.attackerHp,
-        defenderHp: result.defenderHp,
-      });
+      user.hp = 15;
     }
+    user._checkZoneState();
+    
+    this.fightManager._fights.delete(fight.id);
 
-    return {
-      success: true,
-      result: result.finished ? 'finished' : 'hit',
-      damage: result.attackerDamage,
-      counterDamage: result.counterDamage,
-      yourHp: result.attackerHp,
-      opponentHp: result.defenderHp,
-      opponentName: result.defenderName,
-      finished: result.finished,
-      winnerId: result.winnerId,
-      winnerName: result.winnerName,
-    };
+    this._broadcast('fight:ended', {
+      fightId: fight.id,
+      winnerId: winner?.id,
+      winnerName: winner?.name || '未知',
+      loserName: user.name,
+      flee: true,
+    });
+
+    return { success: true };
   }
 
   /**
@@ -357,8 +381,79 @@ export class World {
    * @param {number} dt - 帧间隔（毫秒）
    */
   tick(dt) {
+    let scrubbingUser = null;
     for (const user of this.users.values()) {
       user.update(dt);
+      if (user.id !== 'npc_scrubber' && user.state === 'scrubbing') {
+        scrubbingUser = user;
+      }
+    }
+
+    // 搓澡 NPC 逻辑
+    const scrubber = this.getUser('npc_scrubber');
+    if (scrubber) {
+      // 只有在没被战斗卷入时，才执行闲置搓澡工作
+      if (scrubber.state !== 'fighting' && scrubber.state !== 'walking' || scrubber.state === 'walking' && !scrubber.fightId) {
+        if (scrubbingUser) {
+          scrubber.targetX = scrubbingUser.x - 30; // 走向客人旁边
+          scrubber.targetY = scrubbingUser.y;
+          scrubber.state = 'walking';
+          if (Math.abs(scrubber.x - scrubber.targetX) < 5 && Math.random() < 0.05 && !scrubber._bubbleText) {
+            scrubber.showBubble(Math.random() < 0.5 ? '力道还可以吧？' : '这儿有点紧，我给您多按按。');
+          }
+        } else {
+          // 返回原位
+          scrubber.targetX = 410;
+          scrubber.targetY = 110;
+          scrubber.state = 'walking';
+          if (Math.abs(scrubber.x - scrubber.targetX) < 5) scrubber.state = 'idle';
+        }
+      }
+    }
+
+    // 自动互相走位
+    for (const fight of this.fightManager._fights.values()) {
+      if (fight.finished) continue;
+      const u1 = this.users.get(fight.attackerId);
+      const u2 = this.users.get(fight.defenderId);
+      if (u1 && u2) {
+        const dx = u2.x - u1.x;
+        const dy = u2.y - u1.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 30) {
+          u1.targetX = u2.x; u1.targetY = u2.y;
+          u2.targetX = u1.x; u2.targetY = u1.y;
+          u1.state = 'walking'; u2.state = 'walking';
+        } else {
+          u1.state = 'fighting'; u2.state = 'fighting';
+        }
+      }
+    }
+
+    // 自动战斗结算
+    const fightResults = this.fightManager.tickAutoAttacks(Date.now(), this.users);
+    for (const res of fightResults) {
+      if (res.finished) {
+        const wins = (this.leaderboard.get(res.winnerName) || 0) + 1;
+        this.leaderboard.set(res.winnerName, wins);
+        this.database.addWin(res.winnerName);
+        this._broadcast('fight:ended', {
+          fightId: res.fightId,
+          winnerId: res.winnerId,
+          winnerName: res.winnerName,
+          loserName: res.loserName,
+        });
+      } else {
+        this._broadcast('fight:hit', {
+          fightId: res.fightId,
+          attackerName: res.attackerName,
+          defenderName: res.defenderName,
+          damage: res.attackerDamage,
+          counterDamage: res.counterDamage,
+          attackerHp: res.attackerHp,
+          defenderHp: res.defenderHp,
+        });
+      }
     }
   }
 
@@ -370,9 +465,13 @@ export class World {
       width: CONFIG.WORLD_WIDTH,
       height: CONFIG.WORLD_HEIGHT,
       pool: { ...CONFIG.POOL },
+      zones: CONFIG.ZONES,
+      scrubBeds: CONFIG.SCRUB_BEDS,
       users: [...this.users.values()].map(u => u.toJSON()),
       fights: this.fightManager.getActiveFights(),
       recentMessages: this.chatManager.getRecentMessages(50),
+      leaderboard: [...this.leaderboard.entries()].map(([name, wins]) => ({name, wins}))
+                     .sort((a, b) => b.wins - a.wins).slice(0, 5),
     };
   }
 

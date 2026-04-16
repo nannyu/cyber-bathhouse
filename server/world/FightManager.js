@@ -68,35 +68,30 @@ export class FightManager {
   }
 
   /**
-   * 执行攻击
-   * @param {string} attackerId - 攻击者 ID
-   * @returns {{ success: boolean, result?: Object, error?: string }}
+   * 触发自动战斗
+   * @param {number} now
+   * @param {Map<string, import('./User.js').User>} users
+   * @returns {Array<Object>}
    */
-  performAttack(attackerId) {
-    // 找到包含该玩家的战斗
-    const fight = this._findFightByUser(attackerId);
-    if (!fight) {
-      return { success: false, error: '你不在战斗中', code: 'NOT_FIGHTING' };
+  tickAutoAttacks(now, users) {
+    const results = [];
+    for (const fight of this._fights.values()) {
+      if (fight.finished) continue;
+
+      // 初始等待 2 秒开始第一下，或距上次超过 2 秒
+      if (fight._lastAttackTime === 0) {
+         fight._lastAttackTime = now; // 给个启动缓冲
+      } else if (now - fight._lastAttackTime >= 2000) {
+        fight._lastAttackTime = now;
+        const attacker = users.get(fight.attackerId);
+        const defender = users.get(fight.defenderId);
+        if (!attacker || !defender) continue;
+        
+        const res = this.applyDamage(attacker, defender);
+        if (res) results.push(res);
+      }
     }
-
-    // 检查攻击冷却
-    const now = Date.now();
-    if (now - fight._lastAttackTime < CONFIG.FIGHT.ATTACK_COOLDOWN) {
-      return { success: false, error: '攻击冷却中，请稍候', code: 'COOLDOWN' };
-    }
-    fight._lastAttackTime = now;
-
-    // 确定攻防双方
-    const isAttacker = attackerId === fight.attackerId;
-    const myId = attackerId;
-    const opponentId = isAttacker ? fight.defenderId : fight.attackerId;
-
-    return {
-      success: true,
-      myId,
-      opponentId,
-      fightId: fight.id,
-    };
+    return results;
   }
 
   /**
@@ -109,16 +104,17 @@ export class FightManager {
     const fight = this._fights.get(attacker.fightId);
     if (!fight) return null;
 
-    // 随机伤害
-    const { MIN_DAMAGE, MAX_DAMAGE } = CONFIG.FIGHT;
-    const myDamage = MIN_DAMAGE + Math.floor(Math.random() * (MAX_DAMAGE - MIN_DAMAGE + 1));
-    const counterDamage = MIN_DAMAGE + Math.floor(Math.random() * (MAX_DAMAGE - MIN_DAMAGE + 1));
+    // 随机伤害 0 到 15
+    const myDamage = Math.floor(Math.random() * 16);
+    const counterDamage = Math.floor(Math.random() * 16);
 
     defender.hp = Math.max(0, defender.hp - myDamage);
     attacker.hp = Math.max(0, attacker.hp - counterDamage);
 
     const result = {
       fightId: fight.id,
+      attackerId: attacker.id,
+      defenderId: defender.id,
       attackerDamage: myDamage,
       counterDamage,
       attackerHp: attacker.hp,
@@ -129,27 +125,37 @@ export class FightManager {
 
     // 检查战斗结束
     if (defender.hp <= 0 || attacker.hp <= 0) {
-      const winnerId = defender.hp <= 0 ? attacker.id : defender.id;
-      const loserId = winnerId === attacker.id ? defender.id : attacker.id;
+      const winner = defender.hp <= 0 ? attacker : defender;
+      const loser = winner.id === attacker.id ? defender : attacker;
 
       fight.finished = true;
-      fight.winnerId = winnerId;
-      fight.loserId = loserId;
+      fight.winnerId = winner.id;
+      fight.loserId = loser.id;
 
       // 恢复双方
-      attacker.hp = CONFIG.FIGHT.MAX_HP;
-      defender.hp = CONFIG.FIGHT.MAX_HP;
-      attacker.fightId = null;
-      defender.fightId = null;
+      winner.hp = CONFIG.FIGHT.MAX_HP;
+      winner.fightId = null;
+      winner.state = 'idle'; // 清除战斗状态以允许重置
+
+      loser.fightId = null;
+      loser.state = 'idle';
+      
+      // NPC 战败直接满血，否则剩 15 点
+      if (loser.id.startsWith('npc_')) {
+        loser.hp = CONFIG.FIGHT.MAX_HP;
+      } else {
+        loser.hp = 15;
+      }
 
       // 恢复状态
-      attacker._checkPoolState();
-      defender._checkPoolState();
+      winner._checkZoneState();
+      loser._checkZoneState();
 
       result.finished = true;
-      result.winnerId = winnerId;
-      result.winnerName = winnerId === attacker.id ? attacker.name : defender.name;
-      result.loserName = winnerId === attacker.id ? defender.name : attacker.name;
+      result.winnerId = winner.id;
+      result.loserId = loser.id;
+      result.winnerName = winner.name;
+      result.loserName = loser.name;
 
       // 清理
       this._fights.delete(fight.id);
@@ -175,7 +181,7 @@ export class FightManager {
     if (opponent) {
       opponent.hp = CONFIG.FIGHT.MAX_HP;
       opponent.fightId = null;
-      opponent._checkPoolState();
+      opponent._checkZoneState();
     }
 
     fight.finished = true;

@@ -3,6 +3,8 @@
  */
 
 import { Router } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
 /**
  * 创建 API 路由
@@ -11,6 +13,9 @@ import { Router } from 'express';
  */
 export function createApiRoutes(world, auth) {
   const router = Router();
+  const INVITE_TTL_MS = 10 * 60 * 1000;
+  const AGENT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const hashInviteCode = (code) => crypto.createHash('sha256').update(code).digest('hex');
 
   // ─── 公开路由 ───────────────────────────────────────
 
@@ -18,13 +23,30 @@ export function createApiRoutes(world, auth) {
    * POST /api/auth/register - 注册
    */
   router.post('/auth/register', (req, res) => {
-    const { name, type } = req.body || {};
-    const result = auth.register(name, type || 'browser');
+    const { username, password, nickname, type } = req.body || {};
+    const ip = req.ip || req.connection.remoteAddress;
+    const result = auth.register(username, password, nickname, type || 'browser', ip);
 
     if (!result.success) {
       return res.status(400).json(result);
     }
 
+    res.cookie('auth_token', result.token, { maxAge: 86400000, httpOnly: false });
+    res.json(result);
+  });
+
+  /**
+   * POST /api/auth/login - 登录
+   */
+  router.post('/auth/login', (req, res) => {
+    const { username, password, type } = req.body || {};
+    const result = auth.login(username, password, type || 'browser');
+
+    if (!result.success) {
+      return res.status(401).json(result);
+    }
+
+    res.cookie('auth_token', result.token, { maxAge: 86400000, httpOnly: false });
     res.json(result);
   });
 
@@ -41,27 +63,72 @@ export function createApiRoutes(world, auth) {
     });
   });
 
+  router.get('/agent/spec', (req, res) => {
+    res.json({
+      success: true,
+      auth: {
+        consumeInvite: 'POST /api/agent/invites/consume',
+        bearerToken: 'Authorization: Bearer <agent_access_token>',
+      },
+      endpoints: [
+        { method: 'GET', path: '/api/agent/private-chat/inbox?since=0', desc: '拉取主人私聊消息' },
+        { method: 'POST', path: '/api/agent/private-chat/reply', body: { content: 'string' }, desc: '回复主人私聊消息' },
+      ],
+    });
+  });
+
   // ─── 需认证的路由 ───────────────────────────────────
 
-  router.use(auth.middleware());
+  const userAuthMiddleware = auth.middleware();
+  router.use((req, res, next) => {
+    const isPublicAgentEndpoint =
+      req.path === '/agent/spec' ||
+      req.path === '/agent/invites/consume';
+    if (isPublicAgentEndpoint) {
+      return next();
+    }
+    return userAuthMiddleware(req, res, next);
+  });
+
+  /**
+   * GET /api/auth/me - 当前登录信息
+   */
+  router.get('/auth/me', (req, res) => {
+    res.json({
+      success: true,
+      userId: req.userId,
+      name: req.userName,
+      type: req.userType,
+      role: req.userRole,
+    });
+  });
 
   /**
    * POST /api/join - 加入澡堂
    */
   router.post('/join', (req, res) => {
     const { pet_type } = req.body || {};
+    const petProfile = auth.database.getPetByOwnerUserId(req.userId);
+    const resolvedPetType = pet_type || petProfile?.petType;
     const result = world.addUser({
       id: req.userId,
       name: req.userName,
       type: req.userType,
-      petType: pet_type,
+      petType: resolvedPetType,
     });
 
     if (!result.success) {
       return res.status(400).json(result);
     }
 
-    res.json({ success: true, user: result.user.toJSON() });
+    const userJson = result.user.toJSON();
+    if (petProfile?.petNickname) {
+      userJson.pet.nickname = petProfile.petNickname;
+    }
+    if (petProfile?.petCode) {
+      userJson.pet.petCode = petProfile.petCode;
+    }
+    res.json({ success: true, user: userJson, petProfile });
   });
 
   /**
@@ -206,6 +273,291 @@ export function createApiRoutes(world, auth) {
     json.onlineDuration = Date.now() - user.joinedAt;
 
     res.json({ success: true, user: json });
+  });
+
+  /**
+   * GET /api/pets/me - 获取当前用户宠物资料
+   */
+  router.get('/pets/me', (req, res) => {
+    const petProfile = auth.database.getPetByOwnerUserId(req.userId);
+    if (!petProfile) {
+      return res.status(404).json({
+        success: false,
+        error: '未找到宠物资料',
+        code: 'PET_NOT_FOUND',
+      });
+    }
+    res.json({ success: true, pet: petProfile });
+  });
+
+  /**
+   * PATCH /api/pets/:petId/settings - 更新宠物设置
+   */
+  router.patch('/pets/:petId/settings', (req, res) => {
+    const { petId } = req.params;
+    const { pet_nickname, chat_visibility } = req.body || {};
+    const petProfile = auth.database.getPetById(petId);
+
+    if (!petProfile || petProfile.ownerUserId !== req.userId) {
+      return res.status(404).json({
+        success: false,
+        error: '宠物不存在或无权操作',
+        code: 'PET_NOT_FOUND',
+      });
+    }
+
+    if (typeof pet_nickname !== 'string' || pet_nickname.trim().length < 1 || pet_nickname.trim().length > 20) {
+      return res.status(400).json({
+        success: false,
+        error: '宠物昵称长度必须在 1-20 字符之间',
+        code: 'INVALID_PET_NICKNAME',
+      });
+    }
+    if (chat_visibility !== 'public' && chat_visibility !== 'private') {
+      return res.status(400).json({
+        success: false,
+        error: 'chat_visibility 必须是 public 或 private',
+        code: 'INVALID_CHAT_VISIBILITY',
+      });
+    }
+
+    const updated = auth.database.updatePetSettings(petId, pet_nickname.trim(), chat_visibility);
+    res.json({ success: true, pet: updated });
+  });
+
+  router.post('/agent/invites', (req, res) => {
+    const pet = auth.database.getPetByOwnerUserId(req.userId);
+    if (!pet) {
+      return res.status(404).json({ success: false, error: '未找到宠物', code: 'PET_NOT_FOUND' });
+    }
+    const inviteCode = `agi_${crypto.randomBytes(16).toString('hex')}`;
+    const now = Date.now();
+    auth.database.createAgentInvite({
+      id: `inv_${uuidv4().slice(0, 8)}`,
+      ownerUserId: req.userId,
+      petId: pet.id,
+      inviteCodeHash: hashInviteCode(inviteCode),
+      expiresAt: now + INVITE_TTL_MS,
+      maxUses: 1,
+      usedCount: 0,
+      createdAt: now,
+    });
+    const inviteUrl = `${req.protocol}://${req.get('host')}/agent-invite?code=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(`${req.protocol}://${req.get('host')}`)}`;
+    res.json({ success: true, inviteUrl, expiresAt: now + INVITE_TTL_MS, petCode: pet.petCode });
+  });
+
+  router.post('/agent/summon', (req, res) => {
+    const pet = auth.database.getPetByOwnerUserId(req.userId);
+    if (!pet) {
+      return res.status(404).json({ success: false, error: '未找到宠物', code: 'PET_NOT_FOUND' });
+    }
+    const thread = auth.database.ensurePrivateThread(req.userId, pet.id);
+    const messages = auth.database.getPrivateMessages(thread.id, 0, 100);
+    res.json({ success: true, thread, pet, messages });
+  });
+
+  router.post('/private-chat/:threadId/messages', (req, res) => {
+    const { threadId } = req.params;
+    const { content } = req.body || {};
+    const thread = auth.database.getPrivateThreadById(threadId);
+    if (!thread || thread.ownerUserId !== req.userId) {
+      return res.status(404).json({ success: false, error: '私聊线程不存在', code: 'THREAD_NOT_FOUND' });
+    }
+    if (typeof content !== 'string' || content.trim().length === 0 || content.length > 1000) {
+      return res.status(400).json({ success: false, error: '消息长度必须在 1-1000', code: 'INVALID_MESSAGE' });
+    }
+    const message = {
+      id: `pm_${uuidv4().slice(0, 8)}`,
+      threadId,
+      senderType: 'owner',
+      senderUserId: req.userId,
+      content: content.trim(),
+      createdAt: Date.now(),
+    };
+    auth.database.addPrivateMessage(message);
+    let publicDelivered = false;
+    let warning = null;
+    const pet = auth.database.getPetById(thread.petId);
+    if (pet?.chatVisibility === 'public') {
+      const publicResult = world.processChat(req.userId, `🐾 对${pet.petNickname}: ${content.trim()}`);
+      publicDelivered = !!publicResult?.success;
+      if (!publicDelivered) {
+        warning = publicResult?.error || '公开消息发送失败';
+      }
+    }
+    res.json({ success: true, message, publicDelivered, warning });
+  });
+
+  router.get('/private-chat/:threadId/messages', (req, res) => {
+    const { threadId } = req.params;
+    const since = Number(req.query.since || 0);
+    const thread = auth.database.getPrivateThreadById(threadId);
+    if (!thread || thread.ownerUserId !== req.userId) {
+      return res.status(404).json({ success: false, error: '私聊线程不存在', code: 'THREAD_NOT_FOUND' });
+    }
+    const messages = auth.database.getPrivateMessages(threadId, Number.isFinite(since) ? since : 0, 100);
+    res.json({ success: true, messages });
+  });
+
+  // ─── 管理员路由 ───────────────────────────────────
+  router.get('/admin/users', auth.requireRole('admin'), (req, res) => {
+    const users = auth.database.listAccounts(200);
+    res.json({ success: true, users });
+  });
+
+  router.patch('/admin/users/:userId/role', auth.requireRole('admin'), (req, res) => {
+    const { userId } = req.params;
+    const { role } = req.body || {};
+    if (role !== 'user' && role !== 'admin') {
+      return res.status(400).json({
+        success: false,
+        error: 'role 必须是 user 或 admin',
+        code: 'INVALID_ROLE',
+      });
+    }
+    auth.database.updateAccountRole(userId, role);
+    auth.database.addAdminAuditLog({
+      id: `audit_${uuidv4().slice(0, 8)}`,
+      adminUserId: req.userId,
+      action: 'user_role_update',
+      detail: JSON.stringify({ targetUserId: userId, role }),
+      createdAt: Date.now(),
+    });
+    res.json({ success: true });
+  });
+
+  router.get('/admin/settings', auth.requireRole('admin'), (req, res) => {
+    const settings = auth.database.getSystemSettings();
+    res.json({ success: true, settings });
+  });
+
+  router.patch('/admin/settings', auth.requireRole('admin'), (req, res) => {
+    const { key, value } = req.body || {};
+    if (typeof key !== 'string' || key.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: '设置 key 无效',
+        code: 'INVALID_KEY',
+      });
+    }
+
+    auth.database.upsertSystemSetting({
+      key: key.trim(),
+      value: String(value ?? ''),
+      updatedBy: req.userId,
+    });
+
+    auth.database.addAdminAuditLog({
+      id: `audit_${uuidv4().slice(0, 8)}`,
+      adminUserId: req.userId,
+      action: 'system_setting_update',
+      detail: JSON.stringify({ key: key.trim(), value: String(value ?? '') }),
+      createdAt: Date.now(),
+    });
+
+    res.json({ success: true });
+  });
+
+  // ─── Agent 接入路由（无需普通用户 token）────────────────────
+  router.post('/agent/invites/consume', (req, res) => {
+    const { code, agent_id } = req.body || {};
+    if (!code || !agent_id) {
+      return res.status(400).json({ success: false, error: '缺少 code 或 agent_id', code: 'INVALID_PARAMS' });
+    }
+    const invite = auth.database.getAgentInviteByCodeHash(hashInviteCode(code));
+    if (!invite) {
+      return res.status(404).json({ success: false, error: '邀请码无效', code: 'INVITE_INVALID' });
+    }
+    if (Date.now() > invite.expiresAt) {
+      return res.status(400).json({ success: false, error: '邀请码已过期', code: 'INVITE_EXPIRED' });
+    }
+    if (invite.usedCount >= invite.maxUses) {
+      return res.status(400).json({ success: false, error: '邀请码已使用', code: 'INVITE_USED' });
+    }
+
+    const binding = {
+      id: `bind_${uuidv4().slice(0, 8)}`,
+      petId: invite.petId,
+      ownerUserId: invite.ownerUserId,
+      agentId: String(agent_id),
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    auth.database.upsertAgentBinding(binding);
+    auth.database.consumeAgentInvite(invite.id);
+
+    const token = `agt_${crypto.randomBytes(24).toString('hex')}`;
+    auth.database.createAgentToken({
+      token,
+      ownerUserId: invite.ownerUserId,
+      petId: invite.petId,
+      agentId: String(agent_id),
+      expiresAt: Date.now() + AGENT_TOKEN_TTL_MS,
+      createdAt: Date.now(),
+    });
+
+    const pet = auth.database.getPetById(invite.petId);
+    res.json({
+      success: true,
+      agent_access_token: token,
+      token_expires_in: AGENT_TOKEN_TTL_MS,
+      rest_endpoint: `${req.protocol}://${req.get('host')}/api/agent`,
+      mcp_endpoint: `${req.protocol}://${req.get('host')}/mcp`,
+      capabilities: ['private_chat.receive', 'private_chat.reply', 'world.look'],
+      pet,
+    });
+  });
+
+  const agentAuth = (req, res, next) => {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: '需要 Agent Token', code: 'AUTH_REQUIRED' });
+    }
+    const token = authHeader.slice(7);
+    const agentToken = auth.database.getAgentToken(token);
+    if (!agentToken || Date.now() > agentToken.expiresAt) {
+      return res.status(401).json({ success: false, error: 'Agent Token 无效或过期', code: 'AUTH_REQUIRED' });
+    }
+    req.agent = agentToken;
+    next();
+  };
+
+  router.get('/agent/private-chat/inbox', agentAuth, (req, res) => {
+    const thread = auth.database.ensurePrivateThread(req.agent.ownerUserId, req.agent.petId);
+    const since = Number(req.query.since || 0);
+    const messages = auth.database
+      .getPrivateMessages(thread.id, Number.isFinite(since) ? since : 0, 100)
+      .filter((msg) => msg.senderType === 'owner');
+    res.json({ success: true, thread, messages });
+  });
+
+  router.post('/agent/private-chat/reply', agentAuth, (req, res) => {
+    const { content } = req.body || {};
+    if (typeof content !== 'string' || content.trim().length === 0 || content.length > 1000) {
+      return res.status(400).json({ success: false, error: '消息长度必须在 1-1000', code: 'INVALID_MESSAGE' });
+    }
+    const thread = auth.database.ensurePrivateThread(req.agent.ownerUserId, req.agent.petId);
+    const message = {
+      id: `pm_${uuidv4().slice(0, 8)}`,
+      threadId: thread.id,
+      senderType: 'agent',
+      senderUserId: req.agent.agentId,
+      content: content.trim(),
+      createdAt: Date.now(),
+    };
+    auth.database.addPrivateMessage(message);
+    let publicDelivered = false;
+    let warning = null;
+    const pet = auth.database.getPetById(req.agent.petId);
+    if (pet?.chatVisibility === 'public') {
+      const publicResult = world.processChat(req.agent.ownerUserId, `🤖 ${pet.petNickname}: ${content.trim()}`);
+      publicDelivered = !!publicResult?.success;
+      if (!publicDelivered) {
+        warning = publicResult?.error || '公开消息发送失败';
+      }
+    }
+    res.json({ success: true, message, publicDelivered, warning });
   });
 
   return router;
