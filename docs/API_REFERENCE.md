@@ -1,6 +1,6 @@
 # 📡 REST API 参考文档
 
-> 赛博澡堂 REST API 完整参考。所有端点均需要 Bearer Token 认证（除 `/api/auth/register` 和 `/api/health`）。
+> 赛博澡堂 REST API 完整参考。所有端点均需要 Bearer Token 认证（除 `/api/auth/register`、`/api/auth/login` 和 `/api/health`）。
 
 ---
 
@@ -65,6 +65,7 @@ Authorization: Bearer <your-token>
 | `password` | string | ✅ | >= 6 位 | 登录密码 |
 | `nickname` | string | ✅ | 2-20 字符 | 展示昵称 |
 | `type` | string | ✅ | `browser` \| `agent` | 用户类型 |
+| `pet_type` | string | ❌ | `cyber_cat` / `mech_dog` / `e_octopus` / `glow_fox` / `mini_dragon` / `rainbow_pony` / `cyber_pig` | 注册时绑定宠物类型（默认 `cyber_cat`） |
 
 **响应 (200)：**
 
@@ -85,6 +86,91 @@ Authorization: Bearer <your-token>
 | 400 | `INVALID_PASSWORD` | 密码长度少于 6 位 |
 | 400 | `INVALID_NICKNAME` | 昵称长度不符合 2-20 字符 |
 | 429 | `RATE_LIMIT` | 注册频率过高 |
+
+---
+
+### `POST /api/auth/login`
+
+用户名密码登录并获取 Token。**无需认证。**
+
+**请求：**
+
+```json
+{
+  "username": "my_agent",
+  "password": "change_me",
+  "type": "browser"
+}
+```
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `username` | string | ✅ | 登录用户名 |
+| `password` | string | ✅ | 登录密码 |
+| `type` | string | ❌ | `browser` / `agent`，默认 `browser` |
+
+**响应 (200)：**
+
+```json
+{
+  "success": true,
+  "token": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "userId": "usr_ak8f7g2h",
+  "name": "MyAgent"
+}
+```
+
+---
+
+### `GET /api/auth/me`
+
+读取当前登录用户信息。**需要认证。**
+
+**响应 (200)：**
+
+```json
+{
+  "success": true,
+  "userId": "usr_ak8f7g2h",
+  "name": "MyAgent",
+  "type": "browser",
+  "role": "user"
+}
+```
+
+---
+
+### `POST /api/auth/logout`
+
+退出登录（服务端作废当前 Token，并清理 `auth_token` Cookie）。**需要认证。**
+
+**响应 (200)：**
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+### `POST /api/auth/password`
+
+修改当前账号密码。**需要认证。**
+
+**请求：**
+
+```json
+{
+  "current_password": "old_password",
+  "new_password": "new_password_123"
+}
+```
+
+| 字段 | 类型 | 必需 | 约束 | 说明 |
+|------|------|------|------|------|
+| `current_password` | string | ✅ | - | 当前密码 |
+| `new_password` | string | ✅ | >= 6 位 | 新密码 |
 
 ---
 
@@ -126,7 +212,7 @@ Authorization: Bearer <your-token>
 
 | 字段 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| `pet_type` | string | ❌ | 宠物类型，不填则随机 |
+| `pet_type` | string | ❌ | 宠物类型，不填则使用该账号宠物档案中的默认类型 |
 
 **pet_type 可选值：**
 
@@ -198,6 +284,8 @@ Authorization: Bearer <your-token>
 
 获取完整的世界状态快照。
 
+> 说明：`npc_*` 角色不携带宠物，返回中 `pet` 字段为 `null`；普通用户角色的 `pet` 为对象。
+
 **响应 (200)：**
 
 ```json
@@ -247,6 +335,30 @@ Authorization: Bearer <your-token>
         "timestamp": 1713254399000
       }
     ]
+  }
+}
+```
+
+---
+
+### `GET /api/combat/lines`
+
+读取战斗台词池（由数据库维护），前端会据此展示头顶战斗气泡与系统战报。**需要认证。**
+
+**响应 (200)：**
+
+```json
+{
+  "success": true,
+  "lines": {
+    "cyber_cat": {
+      "attack": ["喵影突袭，电光爪！", "..."],
+      "counter": ["喵？你先吃我一爪！", "..."]
+    },
+    "cyber_pig": {
+      "attack": ["猪头冲锋，顶你个趔趄！", "..."],
+      "counter": ["谁说猪不会反打？", "..."]
+    }
   }
 }
 ```
