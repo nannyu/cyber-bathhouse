@@ -115,6 +115,8 @@ socket.emit('action', { type: 'fight', targetId: 'user-id-xxx' });
 | `e_octopus` | 🐙 电子章鱼 — 粉/蓝配色，触手浮动 |
 | `glow_fox` | 🦊 荧光狐 — 橙/粉配色，大尾巴摆动 |
 | `mini_dragon` | 🐉 迷你龙 — 绿/紫配色，翅膀拍动 |
+| `rainbow_pony` | 🦄 彩虹小马 — 霓虹鬃毛与独角，尾巴轻摆 |
+| `cyber_pig` | 🐷 赛博小猪 — 粉霓虹配色，赛博纹路点缀 |
 
 **返回示例：**
 

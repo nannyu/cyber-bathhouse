@@ -44,6 +44,14 @@ const canvas = document.getElementById('bathhouse-canvas');
 
 let selectedPet = 'cyber_cat';
 
+/** 以当前 UI 选中为准，避免仅用模块变量或 dataset 兼容问题导致 pet_type 未上传 */
+function getSelectedPetType() {
+  const sel = document.querySelector('#pet-select .pet-option.selected');
+  const raw = sel?.getAttribute?.('data-pet')?.trim();
+  if (raw) return raw;
+  return (typeof selectedPet === 'string' && selectedPet.trim()) ? selectedPet.trim() : 'cyber_cat';
+}
+
 // ─── Agent 邀请页元素（可为空；非 invite 页面不会用到）────────────────────────
 const agentInviteCodeEl = document.getElementById('agent-invite-code');
 const agentInviteServerEl = document.getElementById('agent-invite-server');
@@ -79,7 +87,7 @@ petSelect.addEventListener('click', (e) => {
 
   petSelect.querySelectorAll('.pet-option').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-  selectedPet = btn.dataset.pet;
+  selectedPet = btn.getAttribute('data-pet') || btn.dataset.pet || 'cyber_cat';
 });
 
 // ─── 初始化与自动登录 ──────────────────────────────────
@@ -116,6 +124,7 @@ authBtn.addEventListener('click', doAuth);
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
   if (isAgentInvitePage) {
     await initAgentInvitePage();
     return;
@@ -343,7 +352,7 @@ async function doAuth() {
       const p = regPasswordInput.value.trim();
       const n = regNicknameInput.value.trim();
       if (!u || !p || !n) throw new Error('请输入完整的注册信息');
-      await conn.register(u, p, n);
+      await conn.register(u, p, n, getSelectedPetType());
     }
 
     await performJoinWorld();
@@ -371,8 +380,8 @@ async function performJoinWorld() {
     });
   });
 
-  // 加入澡堂
-  await conn.join(selectedPet);
+  // 加入澡堂（以登录页当前选中按钮为准）
+  await conn.join(getSelectedPetType());
 }
 
 // ─── 进入主应用 ───────────────────────────────────────
@@ -397,6 +406,7 @@ function enterApp(name) {
   initSidebar();
   renderChatPanel();
   loadPetProfile();
+  loadCombatLinePools();
 }
 
 function bindConnectionHandlersOnce() {
@@ -448,16 +458,16 @@ function bindConnectionHandlersOnce() {
   });
 
   conn.on('fight:hit', (data) => {
-    if (game) game.handleFightHit(data);
+    const lines = game?.handleFightHit(data);
 
-    const actions = ['左勾拳', '回旋踢', '头槌', '过肩摔', '黑虎掏心', '升龙拳', '扫堂腿'];
-    const act1 = actions[Math.floor(Math.random() * actions.length)];
-    const act2 = actions[Math.floor(Math.random() * actions.length)];
+    const attackLine = lines?.attackLine || '看招！';
+    const counterLine = lines?.counterLine || '接招！';
 
-    let msg = `💥 ${data.attackerName}使出${act1}`;
-    msg += data.attackerDamage > 0 ? `(${data.defenderName} HP-${data.attackerDamage})` : `(被闪避)`;
-    msg += `，${data.defenderName}回敬${act2}`;
-    msg += data.counterDamage > 0 ? `(${data.attackerName} HP-${data.counterDamage})` : `(被闪避)`;
+    let msg = `💥 ${data.attackerName}：「${attackLine}」；${data.defenderName}：「${counterLine}」`;
+    if ((data.attackerDamage || 0) <= 0 && (data.counterDamage || 0) <= 0) {
+      msg += '（本回合互相闪避）';
+    }
+    msg += `｜${data.attackerName} HP:${data.attackerHp} / ${data.defenderName} HP:${data.defenderHp}`;
 
     appendSystemMessage(msg);
   });
@@ -510,6 +520,7 @@ function initSidebar() {
       case 'chat': renderChatPanel(); break;
       case 'private': renderPrivatePanel(); break;
       case 'pet': renderPetPanel(); break;
+      case 'account': renderAccountPanel(); break;
       case 'users': renderUsersPanel(game?.worldState?.users); break;
       case 'admin': renderAdminPanel(); break;
     }
@@ -551,6 +562,15 @@ function renderChatPanel() {
 async function loadPetProfile() {
   try {
     petProfile = await conn.getPetProfile();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadCombatLinePools() {
+  try {
+    const pools = await conn.getCombatLines();
+    game?.setCombatLinePools(pools);
   } catch (error) {
     console.error(error);
   }
@@ -704,6 +724,52 @@ function renderPetPanel() {
   });
 }
 
+function renderAccountPanel() {
+  stopPrivateChatPolling();
+  sidebarContent.innerHTML = `
+    <div class="panel">
+      <div class="panel-header">🔐 ACCOUNT SETTINGS</div>
+      <div class="settings-form">
+        <label class="login-label">当前密码</label>
+        <input id="current-password-input" type="password" class="login-input" autocomplete="current-password" />
+        <label class="login-label">新密码（至少 6 位）</label>
+        <input id="new-password-input" type="password" class="login-input" autocomplete="new-password" />
+        <label class="login-label">确认新密码</label>
+        <input id="confirm-password-input" type="password" class="login-input" autocomplete="new-password" />
+        <div class="settings-actions">
+          <button id="change-password-btn" class="chat-send-btn">修改密码</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('change-password-btn')?.addEventListener('click', async () => {
+    const currentPassword = document.getElementById('current-password-input').value.trim();
+    const newPassword = document.getElementById('new-password-input').value.trim();
+    const confirmPassword = document.getElementById('confirm-password-input').value.trim();
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      appendSystemMessage('请填写完整密码信息');
+      return;
+    }
+    if (newPassword.length < 6) {
+      appendSystemMessage('新密码长度不能少于 6 位');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      appendSystemMessage('两次输入的新密码不一致');
+      return;
+    }
+    try {
+      await conn.changePassword(currentPassword, newPassword);
+      document.getElementById('current-password-input').value = '';
+      document.getElementById('new-password-input').value = '';
+      document.getElementById('confirm-password-input').value = '';
+      appendSystemMessage('登录密码修改成功');
+    } catch (error) {
+      appendSystemMessage(`修改密码失败：${error.message || '未知错误'}`);
+    }
+  });
+}
+
 async function renderAdminPanel() {
   stopPrivateChatPolling();
   if (conn.userRole !== 'admin') {
@@ -789,6 +855,40 @@ function rememberChatKey(key) {
     const oldest = seenChatKeyQueue.shift();
     if (oldest) seenChatKeys.delete(oldest);
   }
+}
+
+function clearSessionChatState() {
+  chatHistory.length = 0;
+  seenChatKeys.clear();
+  seenChatKeyQueue.length = 0;
+}
+
+/**
+ * 退出登录：离开世界、断开连接、清除会话与本地聊天状态
+ */
+async function handleLogout() {
+  if (!confirm('确定退出登录？')) return;
+  stopPrivateChatPolling();
+  clearSessionChatState();
+  game?.stop();
+  game = null;
+  petProfile = null;
+  privateChatThread = null;
+  privateChatLastTs = 0;
+  sidebarContent.innerHTML = '';
+  currentTab = 'chat';
+  sidebarTabs?.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+  sidebarTabs?.querySelector('.tab-btn[data-tab="chat"]')?.classList.add('active');
+  chatMessagesEl = null;
+  await conn.logout();
+  appEl.classList.add('hidden');
+  loginScreen.classList.remove('hidden');
+  footerUser.textContent = '';
+  footerStatus.textContent = '';
+  headerInfo.textContent = '在线: 0 人';
+  authBtn.disabled = false;
+  authBtn.textContent = '进 入 澡 堂';
+  loginError.textContent = '';
 }
 
 function appendChatMessage(msg) {

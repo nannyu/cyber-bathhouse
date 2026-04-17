@@ -212,6 +212,7 @@ html, body {
 /* ─── 宠物选择 ────────────────────────────────────────── */
 .pet-select {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--cb-space-sm);
   justify-content: center;
   margin: var(--cb-space-sm) 0;
@@ -415,6 +416,30 @@ pre.invite-code {
 .header-info {
   font-size: 12px;
   color: var(--cb-text-secondary);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--cb-space-md);
+}
+
+.header-logout-btn {
+  font-family: var(--cb-font-ui);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: var(--cb-radius-sm);
+  border: 1px solid rgba(255, 45, 120, 0.35);
+  background: rgba(255, 45, 120, 0.08);
+  color: var(--cb-text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.header-logout-btn:hover {
+  border-color: rgba(255, 45, 120, 0.55);
+  color: #ffc2d4;
+  background: rgba(255, 45, 120, 0.14);
 }
 
 /* ─── 主内容区 ────────────────────────────────────────── */
@@ -690,6 +715,12 @@ pre.invite-code {
 .settings-actions {
   display: flex;
   gap: var(--cb-space-sm);
+}
+
+.settings-divider {
+  height: 1px;
+  margin: var(--cb-space-sm) 0;
+  background: rgba(0, 240, 255, 0.12);
 }
 
 .admin-grid {

@@ -86,7 +86,7 @@ export const CONFIG = {
   ],
 
   // 宠物类型
-  PET_TYPES: ['cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon'],
+  PET_TYPES: ['cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon', 'rainbow_pony', 'cyber_pig'],
 
   // 出生点范围（池子外）
   SPAWN_AREAS: [

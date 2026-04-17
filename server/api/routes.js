@@ -18,15 +18,30 @@ export function createApiRoutes(world, auth) {
   const AGENT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
   const hashInviteCode = (code) => crypto.createHash('sha256').update(code).digest('hex');
 
+  /**
+   * 解析加入澡堂时的宠物类型：优先使用本次请求里显式传入的有效类型，否则用档案，再否则默认第一种
+   */
+  function resolveJoinPetType(bodyPet, profilePet) {
+    const b = typeof bodyPet === 'string' ? bodyPet.trim() : '';
+    if (b && CONFIG.PET_TYPES.includes(b)) {
+      return { resolved: b, usedClientBody: true };
+    }
+    const p = typeof profilePet === 'string' ? profilePet.trim() : '';
+    if (p && CONFIG.PET_TYPES.includes(p)) {
+      return { resolved: p, usedClientBody: false };
+    }
+    return { resolved: CONFIG.PET_TYPES[0], usedClientBody: false };
+  }
+
   // ─── 公开路由 ───────────────────────────────────────
 
   /**
    * POST /api/auth/register - 注册
    */
   router.post('/auth/register', (req, res) => {
-    const { username, password, nickname, type } = req.body || {};
+    const { username, password, nickname, type, pet_type } = req.body || {};
     const ip = req.ip || req.connection.remoteAddress;
-    const result = auth.register(username, password, nickname, type || 'browser', ip);
+    const result = auth.register(username, password, nickname, type || 'browser', ip, pet_type);
 
     if (!result.success) {
       return res.status(400).json(result);
@@ -108,12 +123,40 @@ export function createApiRoutes(world, auth) {
   });
 
   /**
+   * POST /api/auth/logout - 退出登录（作废会话并清除 Cookie）
+   */
+  router.post('/auth/logout', (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    auth.logoutToken(token);
+    res.clearCookie('auth_token');
+    res.json({ success: true });
+  });
+
+  /**
+   * POST /api/auth/password - 修改登录密码
+   */
+  router.post('/auth/password', (req, res) => {
+    const { current_password, new_password } = req.body || {};
+    const result = auth.changePassword(req.userId, current_password, new_password);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json({ success: true, message: '密码修改成功' });
+  });
+
+  /**
    * POST /api/join - 加入澡堂
    */
   router.post('/join', (req, res) => {
     const { pet_type } = req.body || {};
     const petProfile = auth.database.getPetByOwnerUserId(req.userId);
-    const resolvedPetType = pet_type || petProfile?.petType;
+    const { resolved: resolvedPetType, usedClientBody } = resolveJoinPetType(pet_type, petProfile?.petType);
+
+    if (usedClientBody && petProfile && resolvedPetType !== petProfile.petType) {
+      auth.database.updatePetTypeByOwnerUserId(req.userId, resolvedPetType);
+    }
+
     const result = world.addUser({
       id: req.userId,
       name: req.userName,
@@ -126,13 +169,14 @@ export function createApiRoutes(world, auth) {
     }
 
     const userJson = result.user.toJSON();
-    if (petProfile?.petNickname) {
-      userJson.pet.nickname = petProfile.petNickname;
+    const profileAfter = auth.database.getPetByOwnerUserId(req.userId);
+    if (profileAfter?.petNickname) {
+      userJson.pet.nickname = profileAfter.petNickname;
     }
-    if (petProfile?.petCode) {
-      userJson.pet.petCode = petProfile.petCode;
+    if (profileAfter?.petCode) {
+      userJson.pet.petCode = profileAfter.petCode;
     }
-    res.json({ success: true, user: userJson, petProfile });
+    res.json({ success: true, user: userJson, petProfile: profileAfter || petProfile });
   });
 
   /**
@@ -159,6 +203,14 @@ export function createApiRoutes(world, auth) {
       timestamp: Date.now(),
       world: world.getState(),
     });
+  });
+
+  /**
+   * GET /api/combat/lines - 获取宠物风格战斗台词池
+   */
+  router.get('/combat/lines', (req, res) => {
+    const lines = auth.database.listCombatLines();
+    res.json({ success: true, lines });
   });
 
   /**

@@ -5,6 +5,30 @@
 import { Bathhouse } from './Bathhouse.js';
 import { drawCharacter, drawPet, drawBubble, drawHPBar, drawNameTag } from './SpriteRenderer.js';
 
+const FALLBACK_ATTACK_LINES = [
+  '看我猴子偷桃！',
+  '吃我一记回旋踢！',
+  '让你见识下铁头功！',
+  '闪电五连击！',
+  '这一拳很有力度！',
+];
+
+const FALLBACK_COUNTER_LINES = [
+  '别得意，接招！',
+  '反手就是一记重击！',
+  '来而不往非礼也！',
+  '我可不会站着挨打！',
+  '吃我一招回马枪！',
+];
+
+function pickCombatLine(combatLinePools, petType, kind) {
+  const styleLines = combatLinePools?.[petType]?.[kind];
+  const pool = Array.isArray(styleLines) && styleLines.length > 0
+    ? styleLines
+    : (kind === 'attack' ? FALLBACK_ATTACK_LINES : FALLBACK_COUNTER_LINES);
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export class Game {
   /**
    * @param {HTMLCanvasElement} canvas
@@ -24,6 +48,10 @@ export class Game {
 
     /** @type {Array<Object>} 战斗飘字 */
     this.floatingTexts = [];
+    /** @type {Map<string, { text: string, life: number }>} 战斗出招气泡 */
+    this.combatBubbles = new Map();
+    /** @type {Record<string, {attack: string[], counter: string[]}>} 宠物战斗台词池 */
+    this.combatLinePools = {};
 
     /** @type {Map<string, number>} 胜利跳跃动画 */
     this.victoryTimers = new Map();
@@ -95,6 +123,14 @@ export class Game {
     this.worldState = state;
   }
 
+  /**
+   * 由后端数据库加载宠物战斗台词池
+   * @param {Record<string, {attack?: string[], counter?: string[]}>} pools
+   */
+  setCombatLinePools(pools) {
+    this.combatLinePools = pools || {};
+  }
+
   handleFightHit(data) {
     if (!this.worldState?.users) return;
     const attacker = this.worldState.users.find(u => u.name === data.attackerName);
@@ -106,6 +142,20 @@ export class Game {
     if (attacker && data.counterDamage > 0) {
       this.addDamageText(attacker.x + 24, attacker.y - 10, data.counterDamage);
     }
+    if (attacker) {
+      const text = pickCombatLine(this.combatLinePools, attacker.pet?.type, 'attack');
+      this.combatBubbles.set(attacker.name, { text, life: 1200 });
+      data._attackLine = text;
+    }
+    if (defender) {
+      const text = pickCombatLine(this.combatLinePools, defender.pet?.type, 'counter');
+      this.combatBubbles.set(defender.name, { text, life: 1200 });
+      data._counterLine = text;
+    }
+    return {
+      attackLine: data._attackLine || '看招！',
+      counterLine: data._counterLine || '接招！',
+    };
   }
 
   handleFightEnded(data) {
@@ -146,6 +196,12 @@ export class Game {
       ft.life -= dt;
       ft.y -= 25 * (dt / 1000);
       if (ft.life <= 0) this.floatingTexts.splice(i, 1);
+    }
+    for (const [name, bubble] of this.combatBubbles.entries()) {
+      bubble.life -= dt;
+      if (bubble.life <= 0) {
+        this.combatBubbles.delete(name);
+      }
     }
 
     // 胜利/失败计时器
@@ -251,6 +307,16 @@ export class Game {
           x: user.x + 24,
           y: user.y - 14,
           text: user.bubble,
+          opacity,
+        });
+      }
+      const combatBubble = this.combatBubbles.get(user.name);
+      if (combatBubble) {
+        const opacity = Math.min(1, combatBubble.life / 350);
+        drawBubble(ctx, {
+          x: user.x + 24,
+          y: user.y - 36,
+          text: combatBubble.text,
           opacity,
         });
       }

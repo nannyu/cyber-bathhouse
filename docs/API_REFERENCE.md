@@ -137,6 +137,8 @@ Authorization: Bearer <your-token>
 | `e_octopus` | 🐙 电子章鱼 |
 | `glow_fox` | 🦊 荧光狐 |
 | `mini_dragon` | 🐉 迷你龙 |
+| `rainbow_pony` | 🦄 彩虹小马 |
+| `cyber_pig` | 🐷 赛博小猪 |
 
 **响应 (200)：**
 

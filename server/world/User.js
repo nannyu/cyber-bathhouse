@@ -30,6 +30,9 @@ export class User {
     this.type = type; // 'browser' | 'agent'
     this.state = STATES.IDLE;
 
+    /** NPC（id 以 npc_ 开头）不携带宠物，仅真实玩家有宠物 */
+    const isNpc = typeof id === 'string' && id.startsWith('npc_');
+
     // 随机出生位置
     const spawn = CONFIG.SPAWN_AREAS[Math.floor(Math.random() * CONFIG.SPAWN_AREAS.length)];
     this.x = spawn.x + Math.random() * spawn.width;
@@ -47,11 +50,15 @@ export class User {
       Math.floor(Math.random() * CONFIG.CHARACTER_PALETTES.length)
     ];
 
-    // AI 宠物
-    const resolvedPetType = petType && CONFIG.PET_TYPES.includes(petType)
-      ? petType
-      : CONFIG.PET_TYPES[Math.floor(Math.random() * CONFIG.PET_TYPES.length)];
-    this.pet = new Pet(resolvedPetType, this.x, this.y);
+    // AI 宠物（仅非 NPC）
+    if (isNpc) {
+      this.pet = null;
+    } else {
+      const resolvedPetType = petType && CONFIG.PET_TYPES.includes(petType)
+        ? petType
+        : CONFIG.PET_TYPES[0];
+      this.pet = new Pet(resolvedPetType, this.x, this.y);
+    }
 
     // 气泡
     this._bubbleText = null;
@@ -118,8 +125,9 @@ export class User {
       }
     }
 
-    // 更新宠物
-    this.pet.update(dt, this.x, this.y);
+    if (this.pet) {
+      this.pet.update(dt, this.x, this.y);
+    }
   }
 
   /**
@@ -227,7 +235,7 @@ export class User {
       state: this.state,
       hp: this.hp,
       palette: this.palette,
-      pet: this.pet.toJSON(),
+      pet: this.pet ? this.pet.toJSON() : null,
       bubble: this._bubbleText,
       bubbleTimer: this._bubbleTimer,
       fightId: this.fightId,

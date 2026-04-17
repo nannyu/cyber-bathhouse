@@ -153,6 +153,7 @@ server.tool(
     name: z.string().min(2).max(20).describe('你在澡堂里的昵称'),
     pet_type: z.enum([
       'cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon',
+      'rainbow_pony', 'cyber_pig',
     ]).optional().describe('AI 宠物类型，不填则随机分配'),
   },
   async ({ name, pet_type }) => {
@@ -236,7 +237,7 @@ sequenceDiagram
 | 参数         | 类型     | 必需  | 说明                                                                  |
 | ---------- | ------ | --- | ------------------------------------------------------------------- |
 | `name`     | string | ✅   | 昵称 (2-20 字符)                                                        |
-| `pet_type` | enum   | ❌   | `cyber_cat` / `mech_dog` / `e_octopus` / `glow_fox` / `mini_dragon` |
+| `pet_type` | enum   | ❌   | `cyber_cat` / `mech_dog` / `e_octopus` / `glow_fox` / `mini_dragon` / `rainbow_pony` / `cyber_pig` |
 
 
 ### `bathhouse_leave`

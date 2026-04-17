@@ -127,7 +127,97 @@ const MIGRATIONS = [
       ON private_messages(thread_id, created_at);
     `,
   },
+  {
+    version: 3,
+    description: 'add pet combat lines table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS pet_combat_lines (
+        id TEXT PRIMARY KEY,
+        pet_type TEXT NOT NULL,
+        line_type TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pet_combat_unique
+      ON pet_combat_lines(pet_type, line_type, text);
+      CREATE INDEX IF NOT EXISTS idx_pet_combat_type
+      ON pet_combat_lines(pet_type, line_type);
+    `,
+  },
 ];
+
+const DEFAULT_COMBAT_LINES = {
+  cyber_cat: {
+    attack: [
+      '喵影突袭，电光爪！', '猫步迷踪，瞬间贴脸！', '瞄准弱点，喵拳连打！', '喵爪超频，撕开破绽！', '夜视锁定，扑杀！',
+      '猫猫冲刺，划你一下！', '电子猫尾，横扫！', '低姿突进，连环抓挠！', '喵能激发，快拳出击！', '别眨眼，喵拳到了！',
+    ],
+    counter: [
+      '喵？你先吃我一爪！', '猫反应可不是盖的！', '轻巧转身，反击到位！', '你慢了半拍，喵！', '柔韧闪避后反扑！',
+      '尾巴一甩，回敬你！', '猫步绕后，反打！', '我的节奏你学不来！', '喵星防反，成立！', '你出手，我拆招！',
+    ],
+  },
+  mech_dog: {
+    attack: [
+      '机械犬模式：冲锋撕咬！', '动力核心过载，正面突破！', '锁定目标，钢牙突进！', '液压前爪，重击！', '推进器点火，突刺！',
+      '伺服马达全开，压上！', '装甲撞击，吃我一下！', '红外瞄准，必中一击！', '金属犬吼，震慑冲锋！', '齿轮咬合，连击开始！',
+    ],
+    counter: [
+      '防御协议启动，反制！', '机械回路重启，反扑！', '后置推进器，回击！', '撞针反弹，打回去！', '装甲偏转，顺势反攻！',
+      '你的角度被我算到了！', '系统判定：现在轮到我！', '制动后摆尾，反击！', '护板吸收，火力回敬！', '机械犬反咬，成立！',
+    ],
+  },
+  e_octopus: {
+    attack: [
+      '电子触手，缠绕压制！', '八臂并发，连续输出！', '电波喷射，命中！', '触须封位，连环拍击！', '墨云干扰，贴脸突袭！',
+      '多线程进攻，别想喘气！', '蓝电触点，麻痹一击！', '环绕缠打，压你节奏！', '触手锁喉，重压！', '深海回路，瞬时爆发！',
+    ],
+    counter: [
+      '触手反卷，别想跑！', '多线程反击，接招！', '蓝电脉冲，回敬你！', '你被我包围了！', '反向缠绕，翻盘！',
+      '海流借力，打回去！', '触须弹反，精准命中！', '电容回灌，反打！', '你这一拳被我卸了！', '八爪齐动，反制完成！',
+    ],
+  },
+  glow_fox: {
+    attack: [
+      '狐火一闪，穿心突刺！', '荧光尾扫，速度制胜！', '魅影穿梭，打你措手不及！', '幻影步，三连打！', '狐焰点燃，爆发！',
+      '轻身跃击，快准狠！', '尾焰回旋，命中！', '狐影分身，压迫你！', '灵动突脸，节奏断你！', '霓光掠影，一击即退！',
+    ],
+    counter: [
+      '狐影回旋，反咬一口！', '尾焰点燃，反击开始！', '你追不上我的节奏！', '狐步侧闪，回敬！', '幻尾格挡后反刺！',
+      '借你力道，打你破绽！', '霓光一闪，回马枪！', '狐狸可不会白挨打！', '轻盈后撤，瞬间反扑！', '你的空档被我抓到了！',
+    ],
+  },
+  mini_dragon: {
+    attack: [
+      '龙息喷发，灼烧一击！', '小龙摆尾，震开你！', '鳞甲冲锋，硬碰硬！', '龙爪连撕，压制！', '火花吐息，贴脸！',
+      '腾跃俯冲，猛龙突击！', '龙翼拍击，震你后退！', '逆鳞连打，发力！', '小龙怒吼，气势压制！', '烈焰滚动，冲你正面！',
+    ],
+    counter: [
+      '龙威反震，给我退！', '逆鳞触发，反打！', '腾空回旋，龙爪回敬！', '火焰护体，反击！', '你惹怒小龙了！',
+      '龙尾借势，横扫！', '鳞甲弹开，马上回击！', '俯冲折返，反扑！', '龙息倒灌，回敬你！', '这一击，龙族尊严！',
+    ],
+  },
+  rainbow_pony: {
+    attack: [
+      '彩虹冲刺，角刺突进！', '小马飞踢，彩光命中！', '鬃毛电弧，闪击！', '七色踏步，连击开始！', '虹光撞角，顶你！',
+      '轻灵跃击，正中！', '彩带尾扫，破防！', '小马冲锋，速度压制！', '彩虹轨迹，贴脸切入！', '梦幻重踏，出击！',
+    ],
+    counter: [
+      '彩虹折返，反手一顶！', '别小看小马的爆发！', '七色回旋，回敬你！', '角盾弹开，反击！', '彩光闪避后回踢！',
+      '小马可不吃亏！', '虹弧回击，打你破绽！', '轻跃转身，反冲！', '七彩尾焰，回敬！', '你追我？先挨这下！',
+    ],
+  },
+  cyber_pig: {
+    attack: [
+      '猪头冲锋，顶你个趔趄！', '看我猪鼻拱击！', '赛博猪猪，猛撞出击！', '哼哼加速，顶飞你！', '猪耳一抖，重头槌！',
+      '钢化猪鼻，正面突破！', '肉弹战车，开冲！', '猪蹄连踏，压过去！', '哼哼怒顶，不讲道理！', '猪头摆动，连环撞！',
+    ],
+    counter: [
+      '谁说猪不会反打？', '猪头一甩，反冲！', '哼哼，轮到我顶你了！', '猪鼻卸力，立刻回敬！', '别欺负猪，后果自负！',
+      '胖是储能，反击更狠！', '你这一拳，我拿脸接！', '猪蹄回旋，打回去！', '哼哼反扑，命中！', '猪头护体，回顶！',
+    ],
+  },
+};
 
 export class Database {
   constructor(dbPath) {
@@ -226,6 +316,18 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_private_messages_thread_created
       ON private_messages(thread_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS pet_combat_lines (
+        id TEXT PRIMARY KEY,
+        pet_type TEXT NOT NULL,
+        line_type TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pet_combat_unique
+      ON pet_combat_lines(pet_type, line_type, text);
+      CREATE INDEX IF NOT EXISTS idx_pet_combat_type
+      ON pet_combat_lines(pet_type, line_type);
     `);
   }
 
@@ -239,6 +341,12 @@ export class Database {
       SELECT username, password, nickname, user_id AS userId, role
       FROM accounts
       WHERE username = ?
+    `);
+    this._getAccountByUserIdStmt = this.db.prepare(`
+      SELECT username, password, nickname, user_id AS userId, role
+      FROM accounts
+      WHERE user_id = ?
+      LIMIT 1
     `);
 
     this._getNicknameCountStmt = this.db.prepare(`
@@ -340,6 +448,12 @@ export class Database {
       UPDATE pets
       SET pet_nickname = ?, chat_visibility = ?, updated_at = ?
       WHERE id = ?
+    `);
+
+    this._updatePetTypeByOwnerStmt = this.db.prepare(`
+      UPDATE pets
+      SET pet_type = ?, updated_at = ?
+      WHERE owner_user_id = ?
     `);
 
     this._upsertSettingStmt = this.db.prepare(`
@@ -496,6 +610,39 @@ export class Database {
       ORDER BY created_at ASC
       LIMIT ?
     `);
+
+    this._insertCombatLineStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO pet_combat_lines (id, pet_type, line_type, text, created_at)
+      VALUES (@id, @petType, @lineType, @text, @createdAt)
+    `);
+    this._listCombatLinesStmt = this.db.prepare(`
+      SELECT pet_type AS petType, line_type AS lineType, text
+      FROM pet_combat_lines
+      ORDER BY pet_type ASC, line_type ASC, rowid ASC
+    `);
+    this._countCombatLinesStmt = this.db.prepare(`
+      SELECT COUNT(1) AS count
+      FROM pet_combat_lines
+    `);
+
+    this._seedDefaultCombatLines();
+  }
+
+  _seedDefaultCombatLines() {
+    const countRow = this._countCombatLinesStmt.get();
+    if ((countRow?.count || 0) > 0) return;
+    const now = Date.now();
+    const tx = this.db.transaction(() => {
+      for (const [petType, groups] of Object.entries(DEFAULT_COMBAT_LINES)) {
+        for (const [lineType, texts] of Object.entries(groups)) {
+          for (const text of texts) {
+            const id = `cl_${Math.random().toString(36).slice(2, 12)}`;
+            this._insertCombatLineStmt.run({ id, petType, lineType, text, createdAt: now });
+          }
+        }
+      }
+    });
+    tx();
   }
 
   createAccount(account) {
@@ -506,12 +653,24 @@ export class Database {
     return this._getAccountByUsernameStmt.get(username) || null;
   }
 
+  getAccountByUserId(userId) {
+    return this._getAccountByUserIdStmt.get(userId) || null;
+  }
+
   updateAccountPassword(username, password) {
     this.db.prepare(`
       UPDATE accounts
       SET password = ?
       WHERE username = ?
     `).run(password, username);
+  }
+
+  updateAccountPasswordByUserId(userId, password) {
+    this.db.prepare(`
+      UPDATE accounts
+      SET password = ?
+      WHERE user_id = ?
+    `).run(password, userId);
   }
 
   isNicknameTaken(nickname) {
@@ -591,6 +750,16 @@ export class Database {
     return this.getPetById(petId);
   }
 
+  /**
+   * 更新主人的宠物类型（与登录页选择一致）
+   * @param {string} ownerUserId
+   * @param {string} petType
+   */
+  updatePetTypeByOwnerUserId(ownerUserId, petType) {
+    const r = this._updatePetTypeByOwnerStmt.run(petType, Date.now(), ownerUserId);
+    return r.changes > 0;
+  }
+
   upsertSystemSetting({ key, value, updatedBy }) {
     this._upsertSettingStmt.run(key, value, Date.now(), updatedBy);
   }
@@ -609,6 +778,20 @@ export class Database {
 
   updateAccountRole(userId, role) {
     this._updateAccountRoleStmt.run(role, userId);
+  }
+
+  listCombatLines() {
+    const rows = this._listCombatLinesStmt.all();
+    const grouped = {};
+    for (const row of rows) {
+      if (!grouped[row.petType]) {
+        grouped[row.petType] = { attack: [], counter: [] };
+      }
+      if (row.lineType === 'attack' || row.lineType === 'counter') {
+        grouped[row.petType][row.lineType].push(row.text);
+      }
+    }
+    return grouped;
   }
 
   upsertAgentBinding(binding) {

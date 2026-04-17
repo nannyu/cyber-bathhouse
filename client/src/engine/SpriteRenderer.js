@@ -116,6 +116,12 @@ export function drawPet(ctx, { x, y, type, state, frame }) {
     case 'mini_dragon':
       drawMiniDragon(ctx, bounce, state, f);
       break;
+    case 'rainbow_pony':
+      drawRainbowPony(ctx, bounce, state, f);
+      break;
+    case 'cyber_pig':
+      drawCyberPig(ctx, bounce, state, f);
+      break;
     default:
       drawCyberCat(ctx, bounce, state, f);
   }
@@ -235,6 +241,72 @@ function drawMiniDragon(ctx, bounce, state, f) {
   // 腿
   px(ctx, 2, 6 + bounce, 2, 1, c1);
   px(ctx, 5, 6 + bounce, 2, 1, c1);
+}
+
+function drawRainbowPony(ctx, bounce, state, f) {
+  const body = '#f5e6ff';
+  const outline = '#b829dd';
+  const horn = '#00f0ff';
+  const r1 = '#ff2d78';
+  const r2 = '#ff6e27';
+  const r3 = '#39ff14';
+  const r4 = '#00f0ff';
+  const maneShift = f === 0 ? 0 : 1;
+  // 身体
+  px(ctx, 1, 3 + bounce, 7, 3, body);
+  px(ctx, 1, 3 + bounce, 7, 1, outline);
+  // 鬃毛（彩虹条）
+  px(ctx, 0, 0 + bounce + maneShift, 1, 4, r1);
+  px(ctx, 1, -1 + bounce + maneShift, 1, 3, r2);
+  px(ctx, 2, -2 + bounce + maneShift, 2, 2, r3);
+  px(ctx, 4, -1 + bounce + maneShift, 2, 2, r4);
+  // 头
+  px(ctx, 5, 1 + bounce, 4, 3, body);
+  px(ctx, 5, 1 + bounce, 4, 1, outline);
+  // 独角
+  px(ctx, 8, -1 + bounce, 1, 2, horn);
+  // 眼睛
+  px(ctx, 6, 2 + bounce, 1, 1, '#111');
+  px(ctx, 7, 2 + bounce, 1, 1, '#ff2d78');
+  // 尾巴（彩虹）
+  px(ctx, 0, 4 + bounce - f, 1, 2, r2);
+  px(ctx, -1, 3 + bounce - f, 1, 2, r4);
+  // 腿
+  px(ctx, 2, 6 + bounce, 2, 1, body);
+  px(ctx, 6, 6 + bounce, 2, 1, body);
+}
+
+function drawCyberPig(ctx, bounce, state, f) {
+  const pink = '#ff9ec8';
+  const dark = '#ff2d78';
+  const circuit = '#00f0ff';
+  const snout = '#ffc2dc';
+  const cheek = '#ffb3d3';
+  // 猪头主体（强调脸部轮廓）
+  px(ctx, 1, 1 + bounce, 7, 5, pink);
+  px(ctx, 1, 1 + bounce, 7, 1, dark);
+  // 耳朵
+  px(ctx, 2, 0 + bounce, 1, 1, dark);
+  px(ctx, 6, 0 + bounce, 1, 1, dark);
+  // 脸颊
+  px(ctx, 1, 3 + bounce, 1, 2, cheek);
+  px(ctx, 7, 3 + bounce, 1, 2, cheek);
+  // 眼睛
+  px(ctx, 3, 2 + bounce, 1, 1, '#111');
+  px(ctx, 5, 2 + bounce, 1, 1, '#111');
+  // 猪鼻（居中）
+  px(ctx, 3, 4 + bounce, 3, 2, snout);
+  px(ctx, 4, 4 + bounce, 1, 2, dark);
+  px(ctx, 3, 5 + bounce, 1, 1, '#333');
+  px(ctx, 5, 5 + bounce, 1, 1, '#333');
+  // 赛博发光纹路
+  const blink = f === 0 ? 0 : 1;
+  px(ctx, 0, 3 + bounce, 1, 1, circuit);
+  px(ctx, 8, 2 + bounce + blink, 1, 1, circuit);
+  // 下巴与短腿
+  px(ctx, 2, 6 + bounce, 5, 1, pink);
+  px(ctx, 2, 7 + bounce, 1, 1, pink);
+  px(ctx, 6, 7 + bounce, 1, 1, pink);
 }
 
 /**

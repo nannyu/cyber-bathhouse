@@ -110,6 +110,43 @@ export class AuthManager {
     return this._issueTokenSession(account.userId, account.nickname, type, account.role || 'user');
   }
 
+  /**
+   * 修改密码（需要旧密码校验）
+   * @param {string} userId
+   * @param {string} currentPassword
+   * @param {string} newPassword
+   */
+  changePassword(userId, currentPassword, newPassword) {
+    if (!currentPassword || !newPassword) {
+      return { success: false, error: '请填写完整密码信息', code: 'INVALID_INPUT' };
+    }
+    if (newPassword.length < 6) {
+      return { success: false, error: '新密码长度不能少于 6 位', code: 'INVALID_PASSWORD' };
+    }
+    if (currentPassword === newPassword) {
+      return { success: false, error: '新密码不能与旧密码相同', code: 'SAME_PASSWORD' };
+    }
+
+    const account = this.database.getAccountByUserId(userId);
+    if (!account) {
+      return { success: false, error: '账号不存在', code: 'ACCOUNT_NOT_FOUND' };
+    }
+
+    const storedPassword = account.password;
+    const isHash = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
+    const currentMatched = isHash
+      ? bcrypt.compareSync(currentPassword, storedPassword)
+      : storedPassword === currentPassword;
+
+    if (!currentMatched) {
+      return { success: false, error: '旧密码错误', code: 'AUTH_FAILED' };
+    }
+
+    const upgradedHash = bcrypt.hashSync(newPassword, CONFIG.BCRYPT_ROUNDS);
+    this.database.updateAccountPasswordByUserId(userId, upgradedHash);
+    return { success: true };
+  }
+
   _issueTokenSession(userId, name, type, role) {
     // 若原先有 Token，可选择清理
     this.removeByUserId(userId);
@@ -167,6 +204,17 @@ export class AuthManager {
    */
   removeByUserId(userId) {
     this.database.removeSessionByUserId(userId);
+  }
+
+  /**
+   * 注销当前 Token（退出登录）
+   * @param {string} token
+   */
+  logoutToken(token) {
+    if (token) {
+      this.database.removeSessionByToken(token);
+    }
+    return { success: true };
   }
 
   /**

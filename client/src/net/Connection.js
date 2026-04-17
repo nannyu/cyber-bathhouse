@@ -55,11 +55,12 @@ export class Connection {
    * @param {string} nickname
    * @returns {Promise<Object>}
    */
-  async register(username, password, nickname) {
+  async register(username, password, nickname, petType) {
+    const pt = typeof petType === 'string' && petType.trim() ? petType.trim() : undefined;
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, nickname, type: 'browser' }),
+      body: JSON.stringify({ username, password, nickname, type: 'browser', pet_type: pt }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
@@ -91,6 +92,35 @@ export class Connection {
     this.userName = data.name; // nickname
     this.userRole = data.role || 'user';
     return data;
+  }
+
+  /**
+   * 退出登录：断开 WebSocket、作废服务端会话、清除 auth_token Cookie
+   */
+  async logout() {
+    const token = this.token;
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+      } catch (_) {
+        // 网络失败仍清理本地状态
+      }
+    }
+    this.token = null;
+    this.userId = null;
+    this.userName = null;
+    this.userRole = 'user';
+    document.cookie = 'auth_token=; path=/; max-age=0';
   }
 
   /**
@@ -131,19 +161,20 @@ export class Connection {
    * @param {string} petType
    */
   async join(petType) {
+    const pt = typeof petType === 'string' && petType.trim() ? petType.trim() : 'cyber_cat';
     const res = await fetch('/api/join', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.token}`,
       },
-      body: JSON.stringify({ pet_type: petType }),
+      body: JSON.stringify({ pet_type: pt }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
     // 通知 WebSocket
-    this.socket?.emit('join', { pet_type: petType });
+    this.socket?.emit('join', { pet_type: pt });
     return data;
   }
 
@@ -215,6 +246,15 @@ export class Connection {
     return data.pet;
   }
 
+  async getCombatLines() {
+    const res = await fetch('/api/combat/lines', {
+      headers: { 'Authorization': `Bearer ${this.token}` },
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '获取战斗台词失败');
+    return data.lines || {};
+  }
+
   async updatePetSettings(petId, petNickname, chatVisibility) {
     const res = await fetch(`/api/pets/${encodeURIComponent(petId)}/settings`, {
       method: 'PATCH',
@@ -227,6 +267,23 @@ export class Connection {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '更新失败');
     return data.pet;
+  }
+
+  async changePassword(currentPassword, newPassword) {
+    const res = await fetch('/api/auth/password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '修改密码失败');
+    return data;
   }
 
   async createAgentInvite() {

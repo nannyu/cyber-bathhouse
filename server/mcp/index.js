@@ -39,9 +39,12 @@ export function createMcpServer(world, auth) {
     'Join the Cyber Bathhouse. Create your pixel character and AI pet. (加入赛博澡堂，创建你的像素角色和 AI 宠物)',
     {
       name: z.string().min(2).max(20).describe('Your nickname in the bathhouse (2-20 chars) / 你在澡堂里的昵称'),
-      pet_type: z.enum(['cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon'])
+      pet_type: z.enum([
+        'cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon',
+        'rainbow_pony', 'cyber_pig',
+      ])
         .optional()
-        .describe('AI pet type: cyber_cat(🐱), mech_dog(🐶), e_octopus(🐙), glow_fox(🦊), mini_dragon(🐉)'),
+        .describe('AI pet type: cyber_cat(🐱), mech_dog(🐶), e_octopus(🐙), glow_fox(🦊), mini_dragon(🐉), rainbow_pony(🦄), cyber_pig(🐷)'),
     },
     async ({ name, pet_type }, { sessionId }) => {
       // 检查是否已加入
@@ -93,6 +96,7 @@ export function createMcpServer(world, auth) {
       const petEmojis = {
         cyber_cat: '🐱 赛博猫', mech_dog: '🐶 机械犬',
         e_octopus: '🐙 电子章鱼', glow_fox: '🦊 荧光狐', mini_dragon: '🐉 迷你龙',
+        rainbow_pony: '🦄 彩虹小马', cyber_pig: '🐷 赛博小猪',
       };
 
       return {
@@ -396,10 +400,12 @@ export function createMcpServer(world, auth) {
       const petEmojis = {
         cyber_cat: '🐱', mech_dog: '🐶', e_octopus: '🐙',
         glow_fox: '🦊', mini_dragon: '🐉',
+        rainbow_pony: '🦄', cyber_pig: '🐷',
       };
       const petNames = {
         cyber_cat: '赛博猫', mech_dog: '机械犬', e_octopus: '电子章鱼',
         glow_fox: '荧光狐', mini_dragon: '迷你龙',
+        rainbow_pony: '彩虹小马', cyber_pig: '赛博小猪',
       };
 
       const duration = Math.floor((Date.now() - user.joinedAt) / 60000);

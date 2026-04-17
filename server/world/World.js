@@ -44,7 +44,6 @@ export class World {
       id: 'npc_scrubber',
       name: '王师傅',
       type: 'agent',
-      petType: 'cyber_cat'
     });
     const npc = this.getUser('npc_scrubber');
     if (npc) {
@@ -327,6 +326,9 @@ export class World {
   processPet(userId, action) {
     const user = this.users.get(userId);
     if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+    if (!user.pet) {
+      return { success: false, error: '该角色没有宠物', code: 'NO_PET' };
+    }
 
     const petNames = {
       cyber_cat: '赛博猫',
@@ -334,6 +336,8 @@ export class World {
       e_octopus: '电子章鱼',
       glow_fox: '荧光狐',
       mini_dragon: '迷你龙',
+      rainbow_pony: '彩虹小马',
+      cyber_pig: '赛博小猪',
     };
 
     const petEmojis = {
@@ -342,6 +346,8 @@ export class World {
       e_octopus: '🐙',
       glow_fox: '🦊',
       mini_dragon: '🐉',
+      rainbow_pony: '🦄',
+      cyber_pig: '🐷',
     };
 
     const petName = petNames[user.pet.type] || '宠物';
@@ -497,6 +503,8 @@ export class World {
       e_octopus: '🐙',
       glow_fox: '🦊',
       mini_dragon: '🐉',
+      rainbow_pony: '🦄',
+      cyber_pig: '🐷',
     };
 
     const petNames = {
@@ -505,6 +513,8 @@ export class World {
       e_octopus: '电子章鱼',
       glow_fox: '荧光狐',
       mini_dragon: '迷你龙',
+      rainbow_pony: '彩虹小马',
+      cyber_pig: '赛博小猪',
     };
 
     let desc = `🏯 赛博澡堂 — 当前场景\n━━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -517,12 +527,14 @@ export class World {
       for (const u of users) {
         const typeIcon = u.type === 'agent' ? '🤖' : '🧑';
         const stateText = stateNames[u.state] || u.state;
-        const petEmoji = petEmojis[u.pet.type] || '🐾';
-        const petName = petNames[u.pet.type] || '宠物';
-        const petState = u.pet.state === 'follow' ? '跟随中' : u.pet.state === 'stay' ? '原地等待' : u.pet.state;
 
         desc += `  ${typeIcon} ${u.name} [HP: ${u.hp}] — ${stateText} (${Math.round(u.x)}, ${Math.round(u.y)})\n`;
-        desc += `     ${petEmoji} ${petName} ${petState}\n`;
+        if (u.pet) {
+          const petEmoji = petEmojis[u.pet.type] || '🐾';
+          const petName = petNames[u.pet.type] || '宠物';
+          const petState = u.pet.state === 'follow' ? '跟随中' : u.pet.state === 'stay' ? '原地等待' : u.pet.state;
+          desc += `     ${petEmoji} ${petName} ${petState}\n`;
+        }
 
         if (u.bubble) {
           desc += `     💬 "${u.bubble}"\n`;
