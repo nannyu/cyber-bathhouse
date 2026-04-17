@@ -436,6 +436,24 @@ pre.invite-code {
   transition: border-color 0.2s, color 0.2s, background 0.2s;
 }
 
+.header-control-btn {
+  font-family: var(--cb-font-ui);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--cb-radius-sm);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  background: rgba(0, 240, 255, 0.08);
+  color: var(--cb-text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.header-control-btn:hover {
+  border-color: rgba(0, 240, 255, 0.6);
+  color: #c8f9ff;
+  background: rgba(0, 240, 255, 0.14);
+}
+
 .header-logout-btn:hover {
   border-color: rgba(255, 45, 120, 0.55);
   color: #ffc2d4;

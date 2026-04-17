@@ -131,6 +131,14 @@ export class Game {
     this.combatLinePools = pools || {};
   }
 
+  /**
+   * 注入音乐能量用于场景联动
+   * @param {number} value
+   */
+  setMusicReactiveLevel(value) {
+    this.bathhouse.setMusicEnergy(value);
+  }
+
   handleFightHit(data) {
     if (!this.worldState?.users) return;
     const attacker = this.worldState.users.find(u => u.name === data.attackerName);

@@ -31,9 +31,40 @@ export class World {
     this.leaderboard = new Map(
       this.database.getLeaderboard().map((entry) => [entry.name, entry.wins]),
     );
+    this._scrubberLines = this.database.listNpcDialogues('npc_scrubber', 'scrubbing');
 
     // 延迟初始化 NPC
     setTimeout(() => this.initNPCs(), 100);
+  }
+
+  _getScrubberLines() {
+    if (Array.isArray(this._scrubberLines) && this._scrubberLines.length > 0) {
+      return this._scrubberLines;
+    }
+    return [
+      '力道还可以吧？',
+      '这儿有点紧，我给您多按按。',
+      '放松肩膀，呼吸慢一点。',
+      '这块肌肉有点硬，我先热开。',
+      '水温合适吗？不行我给您调。',
+      '今天工作累坏了吧，先松松背。',
+      '这一下会酸，忍两秒就好了。',
+      '别紧张，我这手法很稳。',
+      '后腰这块我给您重点照顾。',
+      '筋开了，待会儿就轻快了。',
+      '您这肩颈我一看就是久坐。',
+      '先按浅层，再慢慢走深层。',
+      '这边有结节，我给您化开。',
+      '疼就说，我给您降一点力道。',
+      '手臂抬一下，我走一遍经络。',
+      '脖子别用力，我托着您。',
+      '这条筋拉开，今晚好睡觉。',
+      '别急着起身，再给您收个尾。',
+      '这一段走完，整个人都松了。',
+      '您这状态，泡完澡再蒸一会更好。',
+      '我给您按个节奏，血液循环会快些。',
+      '背阔肌挺紧的，我帮您慢慢揉开。',
+    ];
   }
 
   /**
@@ -405,7 +436,9 @@ export class World {
           scrubber.targetY = scrubbingUser.y;
           scrubber.state = 'walking';
           if (Math.abs(scrubber.x - scrubber.targetX) < 5 && Math.random() < 0.05 && !scrubber._bubbleText) {
-            scrubber.showBubble(Math.random() < 0.5 ? '力道还可以吧？' : '这儿有点紧，我给您多按按。');
+            const scrubberLines = this._getScrubberLines();
+            const line = scrubberLines[Math.floor(Math.random() * scrubberLines.length)];
+            scrubber.showBubble(line);
           }
         } else {
           // 返回原位

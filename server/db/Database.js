@@ -144,6 +144,23 @@ const MIGRATIONS = [
       ON pet_combat_lines(pet_type, line_type);
     `,
   },
+  {
+    version: 4,
+    description: 'add npc dialogues table',
+    sql: `
+      CREATE TABLE IF NOT EXISTS npc_dialogues (
+        id TEXT PRIMARY KEY,
+        npc_id TEXT NOT NULL,
+        scene TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_npc_dialogues_unique
+      ON npc_dialogues(npc_id, scene, text);
+      CREATE INDEX IF NOT EXISTS idx_npc_dialogues_scene
+      ON npc_dialogues(npc_id, scene);
+    `,
+  },
 ];
 
 const DEFAULT_COMBAT_LINES = {
@@ -215,6 +232,35 @@ const DEFAULT_COMBAT_LINES = {
     counter: [
       '谁说猪不会反打？', '猪头一甩，反冲！', '哼哼，轮到我顶你了！', '猪鼻卸力，立刻回敬！', '别欺负猪，后果自负！',
       '胖是储能，反击更狠！', '你这一拳，我拿脸接！', '猪蹄回旋，打回去！', '哼哼反扑，命中！', '猪头护体，回顶！',
+    ],
+  },
+};
+
+const DEFAULT_NPC_DIALOGUES = {
+  npc_scrubber: {
+    scrubbing: [
+      '力道还可以吧？',
+      '这儿有点紧，我给您多按按。',
+      '放松肩膀，呼吸慢一点。',
+      '这块肌肉有点硬，我先热开。',
+      '水温合适吗？不行我给您调。',
+      '今天工作累坏了吧，先松松背。',
+      '这一下会酸，忍两秒就好了。',
+      '别紧张，我这手法很稳。',
+      '后腰这块我给您重点照顾。',
+      '筋开了，待会儿就轻快了。',
+      '您这肩颈我一看就是久坐。',
+      '先按浅层，再慢慢走深层。',
+      '这边有结节，我给您化开。',
+      '疼就说，我给您降一点力道。',
+      '手臂抬一下，我走一遍经络。',
+      '脖子别用力，我托着您。',
+      '这条筋拉开，今晚好睡觉。',
+      '别急着起身，再给您收个尾。',
+      '这一段走完，整个人都松了。',
+      '您这状态，泡完澡再蒸一会更好。',
+      '我给您按个节奏，血液循环会快些。',
+      '背阔肌挺紧的，我帮您慢慢揉开。',
     ],
   },
 };
@@ -328,6 +374,18 @@ export class Database {
       ON pet_combat_lines(pet_type, line_type, text);
       CREATE INDEX IF NOT EXISTS idx_pet_combat_type
       ON pet_combat_lines(pet_type, line_type);
+
+      CREATE TABLE IF NOT EXISTS npc_dialogues (
+        id TEXT PRIMARY KEY,
+        npc_id TEXT NOT NULL,
+        scene TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_npc_dialogues_unique
+      ON npc_dialogues(npc_id, scene, text);
+      CREATE INDEX IF NOT EXISTS idx_npc_dialogues_scene
+      ON npc_dialogues(npc_id, scene);
     `);
   }
 
@@ -624,8 +682,22 @@ export class Database {
       SELECT COUNT(1) AS count
       FROM pet_combat_lines
     `);
+    this._insertNpcDialogueStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO npc_dialogues (id, npc_id, scene, text, created_at)
+      VALUES (@id, @npcId, @scene, @text, @createdAt)
+    `);
+    this._listNpcDialoguesStmt = this.db.prepare(`
+      SELECT npc_id AS npcId, scene, text
+      FROM npc_dialogues
+      ORDER BY npc_id ASC, scene ASC, rowid ASC
+    `);
+    this._countNpcDialoguesStmt = this.db.prepare(`
+      SELECT COUNT(1) AS count
+      FROM npc_dialogues
+    `);
 
     this._seedDefaultCombatLines();
+    this._seedDefaultNpcDialogues();
   }
 
   _seedDefaultCombatLines() {
@@ -638,6 +710,23 @@ export class Database {
           for (const text of texts) {
             const id = `cl_${Math.random().toString(36).slice(2, 12)}`;
             this._insertCombatLineStmt.run({ id, petType, lineType, text, createdAt: now });
+          }
+        }
+      }
+    });
+    tx();
+  }
+
+  _seedDefaultNpcDialogues() {
+    const countRow = this._countNpcDialoguesStmt.get();
+    if ((countRow?.count || 0) > 0) return;
+    const now = Date.now();
+    const tx = this.db.transaction(() => {
+      for (const [npcId, scenes] of Object.entries(DEFAULT_NPC_DIALOGUES)) {
+        for (const [scene, texts] of Object.entries(scenes)) {
+          for (const text of texts) {
+            const id = `nd_${Math.random().toString(36).slice(2, 12)}`;
+            this._insertNpcDialogueStmt.run({ id, npcId, scene, text, createdAt: now });
           }
         }
       }
@@ -792,6 +881,14 @@ export class Database {
       }
     }
     return grouped;
+  }
+
+  listNpcDialogues(npcId = null, scene = null) {
+    const rows = this._listNpcDialoguesStmt.all();
+    return rows
+      .filter((row) => (npcId ? row.npcId === npcId : true))
+      .filter((row) => (scene ? row.scene === scene : true))
+      .map((row) => row.text);
   }
 
   upsertAgentBinding(binding) {

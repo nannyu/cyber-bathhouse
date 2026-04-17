@@ -7,6 +7,7 @@ export class Bathhouse {
   constructor() {
     this._steamParticles = [];
     this._time = 0;
+    this._musicEnergy = 0.15;
 
     // 初始化蒸汽粒子
     for (let i = 0; i < 30; i++) {
@@ -31,6 +32,7 @@ export class Bathhouse {
    */
   update(dt) {
     this._time += dt;
+    this._musicEnergy = Math.max(0.08, this._musicEnergy * 0.95);
 
     // 更新蒸汽粒子
     for (const p of this._steamParticles) {
@@ -42,6 +44,15 @@ export class Bathhouse {
         Object.assign(p, this._createSteamParticle());
       }
     }
+  }
+
+  /**
+   * 注入音乐能量（0~1），用于水流波形联动
+   * @param {number} value
+   */
+  setMusicEnergy(value) {
+    const clamped = Math.max(0, Math.min(1, value || 0));
+    this._musicEnergy = Math.max(this._musicEnergy, clamped);
   }
 
   /**
@@ -123,16 +134,27 @@ export class Bathhouse {
        ctx.lineTo(headX + 10, y + 25);
        ctx.stroke();
 
-       // 下落水流线条
-       ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
-       ctx.lineWidth = 1;
-       ctx.beginPath();
-       const dropOffset = (this._time / 10 + i * 20) % 20;
-       for (let d = 0; d < 4; d++) {
-         ctx.moveTo(headX + d * 3, y + 25 + dropOffset);
-         ctx.lineTo(headX + d * 3, y + height - 10);
-       }
-       ctx.stroke();
+      // 下落水流线条（根据音乐旋律能量产生 wave 起伏）
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.45)';
+      ctx.lineWidth = 1;
+      const dropOffset = (this._time / 10 + i * 20) % 20;
+      const amp = 2 + this._musicEnergy * 10;
+      for (let d = 0; d < 4; d++) {
+        const baseX = headX + d * 3;
+        ctx.beginPath();
+        for (let sy = y + 25 + dropOffset; sy <= y + height - 10; sy += 4) {
+          const phase = (sy * 0.13) + (this._time * 0.012) + i * 0.9 + d * 0.6;
+          const wx = baseX + Math.sin(phase) * amp;
+          if (sy === y + 25 + dropOffset) ctx.moveTo(wx, sy);
+          else ctx.lineTo(wx, sy);
+        }
+        ctx.stroke();
+      }
+
+      // 底部水花随音乐脉动
+      const splashW = 8 + this._musicEnergy * 18;
+      ctx.fillStyle = `rgba(0, 240, 255, ${0.1 + this._musicEnergy * 0.25})`;
+      ctx.fillRect(headX - 2, y + height - 12, splashW, 3);
     }
   }
 

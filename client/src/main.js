@@ -41,8 +41,25 @@ const footerUser = document.getElementById('footer-user');
 const sidebarTabs = document.getElementById('sidebar-tabs');
 const sidebarContent = document.getElementById('sidebar-content');
 const canvas = document.getElementById('bathhouse-canvas');
+const bgmToggleBtn = document.getElementById('bgm-toggle-btn');
+const bgmMuteBtn = document.getElementById('bgm-mute-btn');
+const bgmVolumeBtn = document.getElementById('bgm-volume-btn');
 
 let selectedPet = 'cyber_cat';
+let audioCtx = null;
+let bgmGainNode = null;
+let bgmTimer = null;
+let bgmStep = 0;
+let bgmPlaying = false;
+let bgmMuted = false;
+const BGM_VOLUME_LEVELS = [0.25, 0.5, 0.75, 1];
+let bgmVolumeIndex = 1; // 默认 50%
+
+const BGM_MELODY = [659, 0, 784, 880, 784, 659, 523, 0, 587, 659, 698, 659, 587, 523, 494, 0];
+const BGM_BASS = [165, 165, 147, 147, 131, 131, 147, 147, 165, 165, 147, 147, 123, 123, 131, 131];
+const BGM_ARP = [1318, 1174, 1046, 1174, 1396, 1318, 1174, 1046, 1174, 1046, 988, 1046, 1174, 1046, 988, 880];
+const BGM_CHORD = [523, 523, 494, 494, 440, 440, 494, 494, 523, 523, 494, 494, 392, 392, 440, 440];
+const BGM_PULSE = [1, 0, 0.6, 0, 1, 0, 0.8, 0, 1, 0, 0.6, 0, 1, 0.2, 0.8, 0];
 
 /** 以当前 UI 选中为准，避免仅用模块变量或 dataset 兼容问题导致 pet_type 未上传 */
 function getSelectedPetType() {
@@ -125,6 +142,10 @@ authBtn.addEventListener('click', doAuth);
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
+  bgmToggleBtn?.addEventListener('click', toggleBgmPlayback);
+  bgmMuteBtn?.addEventListener('click', toggleBgmMute);
+  bgmVolumeBtn?.addEventListener('click', cycleBgmVolumeLevel);
+  syncBgmButtons();
   if (isAgentInvitePage) {
     await initAgentInvitePage();
     return;
@@ -407,6 +428,7 @@ function enterApp(name) {
   renderChatPanel();
   loadPetProfile();
   loadCombatLinePools();
+  syncBgmButtons();
 }
 
 function bindConnectionHandlersOnce() {
@@ -573,6 +595,105 @@ async function loadCombatLinePools() {
     game?.setCombatLinePools(pools);
   } catch (error) {
     console.error(error);
+  }
+}
+
+function ensureAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+    bgmGainNode = audioCtx.createGain();
+    bgmGainNode.gain.value = 0.12 * BGM_VOLUME_LEVELS[bgmVolumeIndex];
+    bgmGainNode.connect(audioCtx.destination);
+  }
+}
+
+function playChiptuneNote(frequency, durationSec, type = 'square', gain = 0.05) {
+  if (!audioCtx || !bgmGainNode || !frequency || bgmMuted) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = frequency;
+  g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  g.gain.linearRampToValueAtTime(gain, audioCtx.currentTime + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + durationSec);
+  osc.connect(g);
+  g.connect(bgmGainNode);
+  osc.start();
+  osc.stop(audioCtx.currentTime + durationSec + 0.01);
+}
+
+function tickBgm() {
+  if (!bgmPlaying || bgmMuted) {
+    bgmStep = (bgmStep + 1) % BGM_MELODY.length;
+    game?.setMusicReactiveLevel(0.12);
+    return;
+  }
+  const melody = BGM_MELODY[bgmStep % BGM_MELODY.length];
+  const bass = BGM_BASS[bgmStep % BGM_BASS.length];
+  const arp = BGM_ARP[bgmStep % BGM_ARP.length];
+  const chord = BGM_CHORD[bgmStep % BGM_CHORD.length];
+  const pulse = BGM_PULSE[bgmStep % BGM_PULSE.length];
+  if (melody > 0) playChiptuneNote(melody, 0.15, 'square', 0.05);
+  if (arp > 0) playChiptuneNote(arp, 0.09, 'square', 0.028);
+  if (bgmStep % 2 === 0 && bass > 0) playChiptuneNote(bass, 0.24, 'triangle', 0.033);
+  if (bgmStep % 4 === 0 && chord > 0) playChiptuneNote(chord, 0.3, 'sawtooth', 0.018);
+  if (pulse > 0) playChiptuneNote(180 + pulse * 40, 0.04, 'square', 0.012 + pulse * 0.008);
+  const energy = Math.min(1, (melody > 0 ? 0.45 : 0.2) + (arp > 0 ? 0.2 : 0) + pulse * 0.35);
+  game?.setMusicReactiveLevel(energy);
+  bgmStep = (bgmStep + 1) % BGM_MELODY.length;
+}
+
+async function startBgmLoop() {
+  ensureAudioContext();
+  if (audioCtx?.state === 'suspended') {
+    await audioCtx.resume();
+  }
+  if (!bgmTimer) {
+    bgmTimer = setInterval(tickBgm, 180);
+  }
+}
+
+function stopBgmLoop() {
+  if (bgmTimer) {
+    clearInterval(bgmTimer);
+    bgmTimer = null;
+  }
+  bgmPlaying = false;
+}
+
+async function toggleBgmPlayback() {
+  if (!bgmPlaying) {
+    bgmPlaying = true;
+    await startBgmLoop();
+  } else {
+    bgmPlaying = false;
+  }
+  syncBgmButtons();
+}
+
+function toggleBgmMute() {
+  bgmMuted = !bgmMuted;
+  syncBgmButtons();
+}
+
+function cycleBgmVolumeLevel() {
+  bgmVolumeIndex = (bgmVolumeIndex + 1) % BGM_VOLUME_LEVELS.length;
+  if (bgmGainNode) {
+    bgmGainNode.gain.value = 0.12 * BGM_VOLUME_LEVELS[bgmVolumeIndex];
+  }
+  syncBgmButtons();
+}
+
+function syncBgmButtons() {
+  if (bgmToggleBtn) {
+    bgmToggleBtn.textContent = bgmPlaying ? '⏸音乐' : '▶️音乐';
+  }
+  if (bgmMuteBtn) {
+    bgmMuteBtn.textContent = bgmMuted ? '🔇' : '🔊';
+  }
+  if (bgmVolumeBtn) {
+    const pct = Math.round(BGM_VOLUME_LEVELS[bgmVolumeIndex] * 100);
+    bgmVolumeBtn.textContent = `🔉${pct}%`;
   }
 }
 
@@ -881,6 +1002,7 @@ async function handleLogout() {
   sidebarTabs?.querySelector('.tab-btn[data-tab="chat"]')?.classList.add('active');
   chatMessagesEl = null;
   await conn.logout();
+  stopBgmLoop();
   appEl.classList.add('hidden');
   loginScreen.classList.remove('hidden');
   footerUser.textContent = '';
@@ -889,6 +1011,7 @@ async function handleLogout() {
   authBtn.disabled = false;
   authBtn.textContent = '进 入 澡 堂';
   loginError.textContent = '';
+  syncBgmButtons();
 }
 
 function appendChatMessage(msg) {
