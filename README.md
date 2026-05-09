@@ -131,11 +131,14 @@ Cyber-Bathhouse/
 ├── package.json              # 项目配置
 ├── Dockerfile                # Docker 构建
 ├── docker-compose.yml        # 部署编排
+├── .env.example              # 环境变量模板
 ├── AGENTS.md                 # Agent 接入指南
 │
 ├── server/                   # 🖥️ 服务端
 │   ├── index.js              # 服务入口 (Express + Socket.IO + MCP)
 │   ├── config.js             # 配置常量
+│   ├── db/                   # 数据持久化
+│   │   └── Database.js       # SQLite 数据库（用户/会话/宠物/聊天/排行/管理）
 │   ├── world/                # 世界状态管理
 │   │   ├── World.js          # 世界管理器
 │   │   ├── User.js           # 用户实体
@@ -154,27 +157,23 @@ Cyber-Bathhouse/
 │   ├── vite.config.js        # Vite 配置
 │   └── src/
 │       ├── main.js           # 前端入口
-│       ├── styles/index.css  # 全局样式
-│       ├── net/Connection.js # Socket.IO 客户端
-│       ├── engine/           # Canvas 游戏引擎
-│       │   ├── Game.js       # 游戏主循环
-│       │   ├── Bathhouse.js  # 澡堂场景渲染
-│       │   ├── Character.js  # 像素角色
-│       │   ├── Pet.js        # AI 宠物
-│       │   ├── BubbleManager.js  # 对话气泡
-│       │   ├── FightSystem.js    # 战斗动画
-│       │   └── SpriteRenderer.js # 精灵绘制
-│       └── ui/               # 侧边栏 UI
-│           ├── Sidebar.js    # 侧边栏容器
-│           ├── ChatPanel.js  # 聊天面板
-│           ├── LoginScreen.js # 登录界面
-│           └── ...
+│       ├── styles/
+│       │   └── index.css     # 全局样式
+│       ├── net/
+│       │   └── Connection.js # Socket.IO 客户端
+│       └── engine/           # Canvas 游戏引擎
+│           ├── Game.js       # 游戏主循环
+│           ├── Bathhouse.js  # 澡堂场景渲染
+│           └── SpriteRenderer.js # 精灵绘制
 │
 └── docs/                     # 📚 项目文档
     ├── ARCHITECTURE.md       # 架构设计
     ├── DEPLOYMENT.md         # 部署指南
     ├── CODING_STANDARDS.md   # 编码规范
-    └── DESIGN_SYSTEM.md      # 设计系统
+    ├── DESIGN_SYSTEM.md      # 设计系统
+    ├── API_REFERENCE.md      # API 参考文档
+    ├── MCP_GUIDE.md          # MCP 协议接入指南
+    └── RELEASE.md            # 对外发布版说明
 ```
 
 ---
@@ -189,6 +188,9 @@ Cyber-Bathhouse/
 | [📦 部署指南](docs/DEPLOYMENT.md)       | Docker / 手动 / Nginx HTTPS 部署方法 |
 | [🎨 设计系统](docs/DESIGN_SYSTEM.md)    | 配色、字体、动画、像素比例规格                |
 | [📏 编码规范](docs/CODING_STANDARDS.md) | 代码风格、Canvas 规范、事件通信            |
+| [📖 API 参考](docs/API_REFERENCE.md)   | REST API 端点完整参考                |
+| [🔌 MCP 指南](docs/MCP_GUIDE.md)       | MCP 协议接入详细指南                  |
+| [🚀 发布说明](docs/RELEASE.md)         | 对外发布版功能概览与配置说明              |
 
 
 ---

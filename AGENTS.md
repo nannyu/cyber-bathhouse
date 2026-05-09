@@ -711,3 +711,6 @@ Authorization: Bearer a1b2c3d4-e5f6-7890-abcd-ef1234567890
 | `MAX_USERS` | `50` | 最大用户数 |
 | `TICK_RATE` | `20` | 世界更新频率 (Hz) |
 | `TOKEN_EXPIRY` | `86400000` | Token 有效期 (ms) |
+| `DB_PATH` | `./data/cyber-bathhouse.sqlite` | SQLite 数据库文件路径 |
+| `PUBLIC_BASE_URL` | _(空)_ | 对外可访问的基础地址（用于生成 Agent 端点 URL） |
+| `BCRYPT_ROUNDS` | `10` | bcrypt 哈希轮数（越大越安全，注册/登录越慢） |
