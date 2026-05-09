@@ -29,6 +29,31 @@ export class TacticalDirector {
     const ownHpRatio = fighter.hp / (fighter.maxHp || 100);
     const opponentHpRatio = opponent.hp / (opponent.maxHp || 100);
 
+    // 动态风格切换 — 根据战况自动调整策略（仅默认 footsies 风格时生效）
+    if (plan.style === 'footsies' || !plan.style) {
+      // 血量优势大 → 偶尔切换为压制
+      if (ownHpRatio > 0.7 && opponentHpRatio < 0.4 && Math.random() < 0.3) {
+        plan._dynamicStyle = 'rushdown';
+      }
+      // 血量劣势 → 偶尔切换为反击/龟缩
+      else if (ownHpRatio < 0.4 && opponentHpRatio > 0.6 && Math.random() < 0.25) {
+        plan._dynamicStyle = Math.random() < 0.5 ? 'bait_and_punish' : 'turtle';
+      }
+      // 怒气满 → 偶尔切换为激进寻找确认机会
+      else if (fighter.rage >= 80 && Math.random() < 0.2) {
+        plan._dynamicStyle = 'rushdown';
+      }
+      // 正常情况随机切换增加变化
+      else if (Math.random() < 0.05) {
+        const styles = ['footsies', 'rushdown', 'bait_and_punish', 'throw_mixup', 'counter_hit'];
+        plan._dynamicStyle = styles[Math.floor(Math.random() * styles.length)];
+      } else {
+        plan._dynamicStyle = null;
+      }
+    }
+    // 使用动态风格（如果有）
+    const effectiveStyle = plan._dynamicStyle || plan.style || 'footsies';
+
     // Ultimate: kill confirm
     if (fighter.rage >= 100 && opponentHpRatio <= 0.35) {
       return { intent: 'use_ultimate', skillId: 'neon_overdrive', reason: 'kill_confirm' };
@@ -114,7 +139,7 @@ export class TacticalDirector {
     }
 
     // Style-based combat
-    switch (plan.style) {
+    switch (effectiveStyle) {
       case 'rushdown':
       case 'snowball': {
         if (distance > 80) return { intent: 'approach', skillId: 'dash', reason: 'rushdown_dash' };
@@ -183,15 +208,63 @@ export class TacticalDirector {
         return { intent: 'poke', skillId: 'light_punch', reason: 'counter_hit_setup' };
       }
       default: {
-        // footsies — neutral spacing and pokes
-        if (distance > 60) return { intent: 'approach', skillId: null, reason: 'footsies_close' };
-        if (oppGuarding && distance < 38 && Math.random() < 0.35) {
-          return { intent: 'throw', skillId: 'throw', reason: 'footsies_throw' };
-        }
+        // footsies — 丰富的中性格斗策略
         const roll = Math.random();
-        if (roll < 0.45) return { intent: 'poke', skillId: 'light_punch', reason: 'footsies' };
-        if (roll < 0.75) return { intent: 'heavy_attack', skillId: 'heavy_strike', reason: 'footsies_mix' };
-        return { intent: 'poke', skillId: 'medium_kick', reason: 'footsies_kick' };
+        const oppStunned = (opponent.stunFrames || 0) > 0;
+        const oppRecovering = oppAction?.phase === 'recovery';
+        const ownRage = fighter.rage || 0;
+
+        // 对手硬直中 → 确认连招
+        if (oppStunned && distance < 55) {
+          return roll < 0.6
+            ? { intent: 'heavy_attack', skillId: 'heavy_strike', reason: 'footsies_confirm' }
+            : { intent: 'poke', skillId: 'medium_kick', reason: 'footsies_confirm_kick' };
+        }
+
+        // 对手恢复中 → 惩罚
+        if (oppRecovering && distance < 65) {
+          if (roll < 0.5) return { intent: 'whiff_punish', skillId: 'heavy_strike', reason: 'footsies_punish' };
+          if (roll < 0.8) return { intent: 'throw', skillId: 'throw', reason: 'footsies_punish_throw' };
+          return { intent: 'poke', skillId: 'medium_kick', reason: 'footsies_punish_kick' };
+        }
+
+        // 对手起手中 → 抢招或防御
+        if (oppAction?.phase === 'startup' && distance < 60) {
+          if (roll < 0.3) return { intent: 'poke', skillId: 'light_punch', reason: 'footsies_interrupt' };
+          if (roll < 0.5) return { intent: 'block', skillId: 'guard', reason: 'footsies_block' };
+          if (roll < 0.65) return { intent: 'crouch', skillId: null, reason: 'footsies_duck' };
+          return { intent: 'retreat', skillId: 'back_dash', reason: 'footsies_evade' };
+        }
+
+        // 远距离 → 多样化接近方式
+        if (distance > 60) {
+          if (roll < 0.3) return { intent: 'approach', skillId: null, reason: 'footsies_walk_in' };
+          if (roll < 0.5) return { intent: 'approach', skillId: 'dash', reason: 'footsies_dash_in' };
+          if (roll < 0.65) return { intent: 'jump', skillId: null, reason: 'footsies_jump_in' };
+          if (roll < 0.8 && ownRage >= 30) return { intent: 'poke', skillId: 'neon_orb', reason: 'footsies_fireball' };
+          return { intent: 'feint', skillId: null, reason: 'footsies_feint_approach' };
+        }
+
+        // 对手防御中 → 破防择
+        if (oppGuarding && distance < 45) {
+          if (roll < 0.4) return { intent: 'throw', skillId: 'throw', reason: 'footsies_throw' };
+          if (roll < 0.6) return { intent: 'crouch_attack', skillId: 'crouch_kick', reason: 'footsies_low' };
+          if (roll < 0.8) return { intent: 'jump_attack', skillId: 'jump_kick', reason: 'footsies_overhead' };
+          return { intent: 'retreat', skillId: null, reason: 'footsies_bait_guard' };
+        }
+
+        // 中近距离 → 丰富的攻防混合
+        if (roll < 0.18) return { intent: 'poke', skillId: 'light_punch', reason: 'footsies_jab' };
+        if (roll < 0.32) return { intent: 'poke', skillId: 'medium_kick', reason: 'footsies_kick' };
+        if (roll < 0.44) return { intent: 'heavy_attack', skillId: 'heavy_strike', reason: 'footsies_heavy' };
+        if (roll < 0.54) return { intent: 'crouch_attack', skillId: 'crouch_kick', reason: 'footsies_sweep' };
+        if (roll < 0.62) return { intent: 'jump_attack', skillId: 'jump_kick', reason: 'footsies_air' };
+        if (roll < 0.70) return { intent: 'throw', skillId: 'throw', reason: 'footsies_grab' };
+        if (roll < 0.78) return { intent: 'block', skillId: 'guard', reason: 'footsies_guard' };
+        if (roll < 0.84) return { intent: 'retreat', skillId: null, reason: 'footsies_space' };
+        if (roll < 0.90) return { intent: 'feint', skillId: null, reason: 'footsies_feint' };
+        if (roll < 0.95) return { intent: 'sidestep', skillId: null, reason: 'footsies_sidestep' };
+        return { intent: 'crouch', skillId: null, reason: 'footsies_duck_wait' };
       }
     }
   }

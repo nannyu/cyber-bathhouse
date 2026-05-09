@@ -15,22 +15,287 @@ import { EffectsLayer } from './EffectsLayer.js';
 import { getSpriteAtlas } from './SpriteAtlas.js';
 
 const FALLBACK_ATTACK_LINES = [
-  '看我猴子偷桃！',
-  '吃我一记回旋踢！',
-  '让你见识下铁头功！',
-  '闪电五连击！',
-  '这一拳很有力度！',
+  '看招！',
+  '接好了！',
+  '吃我这招！',
+  '来吧！',
+  '哈！',
 ];
 
 const FALLBACK_COUNTER_LINES = [
-  '别得意，接招！',
-  '反手就是一记重击！',
+  '别得意！',
+  '接招！',
+  '还手！',
+  '不会站着挨打！',
   '来而不往非礼也！',
-  '我可不会站着挨打！',
-  '吃我一招回马枪！',
 ];
 
-function pickCombatLine(combatLinePools, petType, kind) {
+/** 按招式分类的出招台词 */
+const SKILL_ATTACK_LINES = {
+  light_punch: [
+    '尝尝这拳！',
+    '快拳！',
+    '霓虹刺拳！',
+    '看我手速！',
+    '一寸短一寸险！',
+    '闪电出击！',
+    '三连刺！',
+    '拳如流星！',
+    '速度就是力量！',
+    '眨眼间的事！',
+    '这拳你躲不开！',
+  ],
+  heavy_strike: [
+    '蒸汽重锤！',
+    '吃我一记重拳！',
+    '这一拳有千斤之力！',
+    '碎裂吧！',
+    '全力一击！',
+    '重击！倒下吧！',
+    '铁拳制裁！',
+    '一拳定胜负！',
+    '感受这份量！',
+    '粉碎一切！',
+    '这拳够你记一辈子！',
+  ],
+  medium_kick: [
+    '霓虹回旋踢！',
+    '吃我一脚！',
+    '看腿！',
+    '旋风腿！',
+    '这一脚够你受的！',
+    '踢飞你！',
+    '侧踢！',
+    '腿法如风！',
+    '中段突破！',
+    '这一脚带电的！',
+    '旋转！起飞！',
+  ],
+  throw: [
+    '过来吧！',
+    '赛博擒拿！',
+    '抓住你了！',
+    '别想跑！',
+    '摔！',
+    '让你尝尝地板的味道！',
+    '近身就是我的回合！',
+    '防得住拳头防不住摔！',
+    '贴身缠斗！',
+    '地板欢迎你！',
+    '这叫近身格斗术！',
+  ],
+  crouch_kick: [
+    '下盘扫腿！',
+    '注意脚下！',
+    '扫堂腿！',
+    '低位突袭！',
+    '看下面！',
+    '绊倒你！',
+    '下段攻击！',
+    '脚底抹油了吧？',
+    '站不稳了吧！',
+    '低姿态出击！',
+    '扫你个措手不及！',
+  ],
+  jump_kick: [
+    '从天而降！',
+    '空中飞踢！',
+    '看上面！',
+    '天降正义！',
+    '飞踹！',
+    '空袭！',
+    '重力加速踢！',
+    '头顶开花！',
+    '空中是我的领域！',
+    '俯冲攻击！',
+    '你防得住上面吗？',
+  ],
+  neon_overdrive: [
+    '霓虹超载！！',
+    '终结技！吃好了！',
+    '全部力量！爆发！',
+    '这是最后一击！',
+    '超必杀！霓虹风暴！',
+    '见证奇迹的时刻！',
+    '百分百全力！接好了！',
+    '霓虹之力！毁灭一切！',
+    '这招叫做…终结！',
+    '燃烧吧！霓虹之魂！',
+  ],
+  steam_reversal: [
+    '蒸汽逆转！！',
+    '反击的时刻到了！',
+    '绝地翻盘！',
+    '你以为赢了？天真！',
+    '逆转乾坤！',
+    '蒸汽之力！反转局势！',
+    '这才刚刚开始！',
+    '绝境反杀！',
+    '你逼我用这招的！',
+    '翻盘时刻！看好了！',
+  ],
+  neon_orb: [
+    '霓虹弹！',
+    '吃我一发！',
+    '远程轰炸！',
+    '接好了！能量弹！',
+    '闪避这个试试！',
+    '远距离压制！',
+    '能量集中…发射！',
+    '霓虹光球！',
+    '这发带追踪的！',
+    '远程火力覆盖！',
+  ],
+  guard: [
+    '防住了！',
+    '这点程度还不够！',
+    '铬合金护盾！',
+    '想打穿我的防御？',
+    '稳如磐石！',
+    '固若金汤！',
+    '防御就是最好的进攻！',
+    '你打不穿的！',
+    '铜墙铁壁！',
+    '等你出破绽！',
+  ],
+};
+
+/** 按被攻击招式分类的反击台词 */
+const SKILL_COUNTER_LINES = {
+  light_punch: [
+    '就这？',
+    '挠痒痒呢？',
+    '太轻了！',
+    '这拳没力道啊！',
+    '蚊子叮了一下？',
+    '不痛不痒！',
+    '快是快，但没用！',
+    '这种程度…',
+    '再快也打不疼我！',
+  ],
+  heavy_strike: [
+    '好重…但我还站着！',
+    '嘶…这一下够狠！',
+    '差点…还好扛住了！',
+    '疼！但还没倒！',
+    '力气大有什么用！',
+    '硬吃一记…值了！',
+    '骨头还在…没事！',
+    '这拳…有点东西！',
+    '重拳？我接住了！',
+  ],
+  medium_kick: [
+    '腿法不错，但不够！',
+    '这一脚…有点东西！',
+    '踢到了又怎样！',
+    '还以为多疼呢！',
+    '腿功还行，继续！',
+    '这脚力道一般！',
+    '踢中了…然后呢？',
+    '我还站得稳！',
+    '就这腿法？',
+  ],
+  throw: [
+    '放开我！',
+    '可恶…被抓住了！',
+    '下次不会再中了！',
+    '摔不死我的！',
+    '近身让你得逞了！',
+    '可恶…大意了！',
+    '这摔法…记住了！',
+    '地板好硬…',
+    '下次保持距离！',
+  ],
+  crouch_kick: [
+    '脚下使绊子？卑鄙！',
+    '差点摔倒…',
+    '下三路的招数！',
+    '注意到了，下次闪开！',
+    '腿被扫到了…',
+    '下盘不稳…可恶！',
+    '这招阴险！',
+    '脚踝好疼…',
+    '低位攻击…防不住！',
+  ],
+  jump_kick: [
+    '从上面来？看到了！',
+    '空中的破绽很大！',
+    '飞踢？我接住了！',
+    '落地的时候有你好看！',
+    '头顶挨了一下…',
+    '空袭…没防住！',
+    '下次抬头看！',
+    '从天上来也没用！',
+    '空中踢…有创意！',
+  ],
+  neon_overdrive: [
+    '这威力…太恐怖了！',
+    '必杀技…好强！',
+    '可恶…挡不住！',
+    '这一招…毁天灭地！',
+    '全身都在痛…！',
+    '必杀技的威力…恐怖！',
+    '这种力量…不是人类的！',
+    '被终结了…！',
+  ],
+  steam_reversal: [
+    '反击技…没防住！',
+    '这招…好快！',
+    '被逆转了…！',
+    '蒸汽之力…太强了！',
+    '反击的时机太完美了…',
+    '这招防不住…！',
+    '被翻盘了…！',
+    '逆转技…恐怖！',
+  ],
+};
+
+/** 胜利结算台词 */
+const VICTORY_LINES = [
+  '哼，不过如此。',
+  '这就结束了？还没热身呢。',
+  '赢了！今晚加个鸡腿！',
+  '实力差距，没办法。',
+  '下次再来，我奉陪到底。',
+  '胜者为王，认了吧。',
+  '还想再来一局吗？',
+  '这场打得还算痛快！',
+  '承让承让～',
+  '赛博澡堂最强，就是我！',
+];
+
+/** 败方结算台词 */
+const DEFEAT_LINES = [
+  '可恶…下次一定赢回来！',
+  '今天状态不好…再来！',
+  '你等着，我去搓个澡回来再战！',
+  '输了…但学到了不少。',
+  '好强…这次认栽了。',
+  '哎，差一点就赢了…',
+  '我需要去泡个澡冷静一下…',
+  '下次我会更强的！',
+  '这不算！我还没出全力！',
+  '先去找王师傅搓个澡回回血…',
+];
+
+/** 平局台词 */
+const DRAW_LINES = [
+  '势均力敌啊！',
+  '平手…下次分个高下！',
+  '时间到了…还没打够！',
+  '旗鼓相当，改天再战！',
+  '这局不算，再来一场！',
+];
+
+function pickCombatLine(combatLinePools, petType, kind, skillId) {
+  // 优先使用招式专属台词
+  if (skillId) {
+    const skillPool = kind === 'attack' ? SKILL_ATTACK_LINES[skillId] : SKILL_COUNTER_LINES[skillId];
+    if (skillPool && skillPool.length > 0) {
+      return skillPool[Math.floor(Math.random() * skillPool.length)];
+    }
+  }
+  // 其次使用宠物风格台词
   const styleLines = combatLinePools?.[petType]?.[kind];
   const pool = Array.isArray(styleLines) && styleLines.length > 0
     ? styleLines
@@ -206,12 +471,12 @@ export class Game {
       this.addDamageText(attacker.x + 24, attacker.y - 10, data.counterDamage);
     }
     if (attacker) {
-      const text = pickCombatLine(this.combatLinePools, attacker.pet?.type, 'attack');
+      const text = pickCombatLine(this.combatLinePools, attacker.pet?.type, 'attack', data.attackerSkillId);
       this.combatBubbles.set(attacker.name, { text, life: 1200 });
       data._attackLine = text;
     }
     if (defender) {
-      const text = pickCombatLine(this.combatLinePools, defender.pet?.type, 'counter');
+      const text = pickCombatLine(this.combatLinePools, defender.pet?.type, 'counter', data.attackerSkillId);
       this.combatBubbles.set(defender.name, { text, life: 1200 });
       data._counterLine = text;
     }
@@ -308,13 +573,24 @@ export class Game {
     if (data.fightId) this.fightSnapshots.delete(data.fightId);
 
     if (data.isDraw) {
+      // 平局台词
+      if (data.winnerName) {
+        const line = DRAW_LINES[Math.floor(Math.random() * DRAW_LINES.length)];
+        this.combatBubbles.set(data.winnerName, { text: line, life: 3000 });
+      }
       return;
     }
     if (data.winnerName) {
       this.victoryTimers.set(data.winnerName, 3000);
+      // 胜利台词
+      const line = VICTORY_LINES[Math.floor(Math.random() * VICTORY_LINES.length)];
+      this.combatBubbles.set(data.winnerName, { text: line, life: 3000 });
     }
     if (data.loserName) {
       this.defeatedTimers.set(data.loserName, KO_DOWN_DURATION_MS);
+      // 败方台词
+      const line = DEFEAT_LINES[Math.floor(Math.random() * DEFEAT_LINES.length)];
+      this.combatBubbles.set(data.loserName, { text: line, life: 3000 });
 
       // 触发 KO 慢动作 + 特效（拳皇风格）
       this._slowMotionFactor = 0.15;       // 极慢
