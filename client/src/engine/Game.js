@@ -545,6 +545,15 @@ export class Game {
         posePhaseFrame = user.phaseFrame ?? 0;
       }
 
+      // 地面椭圆投影（阴影）— y+32 是精灵表锚点脚底位置
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.ellipse(user.x + 24, user.y + 32, 14, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
       drawCharacter(ctx, {
         x: user.x,
         y: user.y,

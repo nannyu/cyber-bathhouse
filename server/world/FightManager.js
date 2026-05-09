@@ -456,12 +456,9 @@ export class FightManager {
       winner.fightId = null;
       winner.state = 'idle';
       this._resetCombatVisuals(winner);
-      // NPC 胜利后延迟恢复，等胜利动作结束再走回原位
-      if (winner.id.startsWith('npc_')) {
-        winner._postDefeatDelay = 8000; // 胜利动画 3 秒 + 额外 5 秒
-      } else {
-        winner._checkZoneState?.();
-      }
+      // 战斗结束后延迟 5 秒再离开擂台
+      winner._postDefeatDelay = winner.id.startsWith('npc_') ? 8000 : 5000;
+      winner._arenaExitPending = true;
       winner.lastFightResult = {
         finished: true,
         fightId: fight.id,
@@ -477,14 +474,10 @@ export class FightManager {
       loser.rageState = 'charging';
       loser.hp = loser.id.startsWith('npc_') ? CONFIG.FIGHT.MAX_HP : 15;
       this._resetCombatVisuals(loser);
-      // NPC 被击败后延迟恢复，不立即切换状态
-      if (loser.id.startsWith('npc_')) {
-        loser.state = 'idle';
-        loser._postDefeatDelay = 5000; // 倒地动画完成后再等 5 秒
-      } else {
-        loser.state = 'idle';
-        loser._checkZoneState?.();
-      }
+      loser.state = 'idle';
+      // 战斗结束后延迟 5 秒再离开擂台
+      loser._postDefeatDelay = loser.id.startsWith('npc_') ? 5000 : 5000;
+      loser._arenaExitPending = true;
       loser.lastFightResult = {
         finished: true,
         fightId: fight.id,

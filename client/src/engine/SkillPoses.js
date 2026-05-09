@@ -29,9 +29,8 @@ export function drawCharacterFromCode(ctx, opts) {
     ctx.translate(0, -14 - jumpOffset);
   }
   if (actionState === 'knockdown') {
-    ctx.translate(pivotX, pivotY);
-    ctx.rotate(Math.PI / 2);
-    ctx.translate(-pivotX, -pivotY);
+    // 使用倒地帧，不旋转
+    ctx.translate(0, 8);
   }
 
   const bounce = frame % 2 === 0 ? 0 : -1;

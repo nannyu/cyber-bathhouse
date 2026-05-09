@@ -318,6 +318,18 @@ export class World {
       return { success: false, error: '坐标超出范围', code: 'INVALID_POSITION' };
     }
 
+    // 擂台有战斗时，无关人员不得进入擂台区域
+    const arena = CONFIG.ZONES.ARENA;
+    const targetInArena = arena && x >= arena.x && x <= arena.x + arena.width &&
+      y >= arena.y && y <= arena.y + arena.height;
+    if (targetInArena && !user.fightId && !user._arenaExitPending) {
+      // 检查是否有正在进行的战斗
+      const hasActiveFight = this.fightManager.getActiveFights().length > 0;
+      if (hasActiveFight) {
+        return { success: false, error: '擂台正在比赛中，请在外围观战', code: 'ARENA_BLOCKED' };
+      }
+    }
+
     const from = { x: Math.round(user.x), y: Math.round(user.y) };
     user.moveTo(x, y);
 
@@ -697,6 +709,24 @@ export class World {
       user.update(dt);
       if (user.id !== 'npc_scrubber' && user.state === 'scrubbing') {
         scrubbingUser = user;
+      }
+
+      // 战斗结束后延迟自动离开擂台
+      if (user._arenaExitPending && user._postDefeatDelay > 0) {
+        user._postDefeatDelay -= dt;
+        if (user._postDefeatDelay <= 0) {
+          user._arenaExitPending = false;
+          // 自动走出擂台到附近空闲区域
+          const arena = CONFIG.ZONES.ARENA;
+          if (user.id.startsWith('npc_')) {
+            // NPC 走回原位（由 NPC AI 处理）
+          } else {
+            // 玩家走到擂台上方
+            const exitX = arena.x + Math.random() * arena.width;
+            const exitY = arena.y - 40 - Math.random() * 30;
+            user.moveTo(exitX, exitY);
+          }
+        }
       }
     }
 

@@ -56,13 +56,10 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
     const native = charDef?.nativeFacing === 'left' ? -1 : 1;
     const flipX = facing !== native;
 
-    // 搓澡/战败状态：在精灵表绘制前应用旋转变换
+    // 搓澡/战败状态：在精灵表绘制前应用变换
     if (state === 'scrubbing' || state === 'defeated') {
       ctx.save();
       ctx.translate(x + 24, y + 32);
-      if (state === 'defeated') {
-        ctx.rotate(Math.PI / 2);
-      }
       // 搓澡时轻微抖动
       if (state === 'scrubbing') {
         const scrubShake = Math.sin(Date.now() * 0.01) * 1.5;
@@ -99,9 +96,7 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
 
   if (state === 'scrubbing' || state === 'defeated') {
     ctx.translate(30, 32);
-    if (state === 'defeated') {
-      ctx.rotate(Math.PI / 2); // 战败向右倒
-    } else {
+    if (state === 'scrubbing') {
       // 搓澡时轻微抖动，不旋转
       const scrubShake = Math.sin(Date.now() * 0.01) * 1.5;
       ctx.translate(scrubShake, 0);
