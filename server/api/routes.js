@@ -39,6 +39,52 @@ export function createApiRoutes(world, auth) {
   // ─── 公开路由 ───────────────────────────────────────
 
   /**
+   * GET /api/weather - 获取天气（根据客户端 IP 定位）
+   */
+  const _weatherCacheByIp = new Map();
+  router.get('/weather', async (req, res) => {
+    const now = Date.now();
+    // 获取客户端真实 IP
+    const clientIp = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()) || req.ip || '';
+    const isLocal = !clientIp || clientIp.startsWith('127') || clientIp.startsWith('::1') || clientIp === '::ffff:127.0.0.1';
+    const cacheKey = isLocal ? '_local' : clientIp;
+
+    // 按用户 IP 缓存 10 分钟
+    const cached = _weatherCacheByIp.get(cacheKey);
+    if (cached && now - cached.ts < 10 * 60 * 1000) {
+      return res.json({ success: true, weather: cached.text });
+    }
+
+    try {
+      // 用客户端 IP 请求 wttr.in，让它根据用户所在地定位
+      const url = isLocal
+        ? 'https://wttr.in/?format=%l:+%c+%t'
+        : `https://wttr.in/${clientIp}?format=%l:+%c+%t`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(url, {
+        headers: { 'Accept': 'text/plain', 'User-Agent': 'curl/7.0' },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const text = (await resp.text()).trim();
+        if (text && text.length < 50 && !text.includes('<')) {
+          _weatherCacheByIp.set(cacheKey, { text, ts: now });
+          // 清理过期缓存防止内存泄漏
+          if (_weatherCacheByIp.size > 200) {
+            for (const [k, v] of _weatherCacheByIp) {
+              if (now - v.ts > 30 * 60 * 1000) _weatherCacheByIp.delete(k);
+            }
+          }
+          return res.json({ success: true, weather: text });
+        }
+      }
+    } catch (_) { }
+    res.json({ success: true, weather: cached?.text || '☀️' });
+  });
+
+  /**
    * POST /api/auth/register - 注册
    */
   router.post('/auth/register', (req, res) => {

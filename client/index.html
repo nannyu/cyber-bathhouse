@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,16 +8,19 @@
   <meta name="description" content="像素风赛博朋克多人互动平台 — 泡着澡聊着天，带着 AI 宠物打架。支持 AI Agent 工具实时接入。" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏯</text></svg>" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏯</text></svg>" />
 </head>
+
 <body>
   <!-- 登录界面 -->
   <div id="login-screen">
     <div class="login-container">
       <h1 class="login-title">🏯 赛博澡堂</h1>
       <p class="login-subtitle">CYBER BATHHOUSE</p>
-      
+
       <div class="auth-tabs">
         <button class="auth-tab active" data-mode="login">登 录</button>
         <button class="auth-tab" data-mode="register">注 册</button>
@@ -28,7 +32,8 @@
           <label class="login-label">用户名</label>
           <input type="text" id="login-username" class="login-input" placeholder="输入用户名..." autocomplete="username" />
           <label class="login-label">密码</label>
-          <input type="password" id="login-password" class="login-input" placeholder="输入密码..." autocomplete="current-password" />
+          <input type="password" id="login-password" class="login-input" placeholder="输入密码..."
+            autocomplete="current-password" />
         </div>
 
         <!-- 注册表单 -->
@@ -36,9 +41,11 @@
           <label class="login-label">用户名</label>
           <input type="text" id="reg-username" class="login-input" placeholder="字母/数字，3-20位" autocomplete="off" />
           <label class="login-label">密码</label>
-          <input type="password" id="reg-password" class="login-input" placeholder="最少6位密码" autocomplete="new-password" />
+          <input type="password" id="reg-password" class="login-input" placeholder="最少6位密码"
+            autocomplete="new-password" />
           <label class="login-label">赛博昵称</label>
-          <input type="text" id="reg-nickname" class="login-input" placeholder="向全服展示的名字..." maxlength="20" autocomplete="off" />
+          <input type="text" id="reg-nickname" class="login-input" placeholder="向全服展示的名字..." maxlength="20"
+            autocomplete="off" />
         </div>
 
         <label class="login-label">选择 AI 宠物</label>
@@ -81,7 +88,8 @@
         <p class="invite-manual-text" style="margin-bottom: var(--cb-space-sm);">
           复制下面整段发给 Claude / Codex / Cursor 里的 Agent：会先要求读取仓库内手册，再兑换 Token。
         </p>
-        <textarea id="agent-invite-landing-prompt" class="login-input" rows="14" readonly placeholder="加载提示词…"></textarea>
+        <textarea id="agent-invite-landing-prompt" class="login-input" rows="14" readonly
+          placeholder="加载提示词…"></textarea>
         <div class="settings-actions" style="margin-top: var(--cb-space-sm);">
           <button type="button" id="agent-copy-landing-prompt-btn" class="chat-send-btn">复制提示词</button>
         </div>
@@ -192,10 +200,10 @@ claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
 
   <!-- 主应用界面 (固定比例缩放式硬分栏布局) -->
   <div id="app" class="hidden scale-layout">
-    
+
     <!-- 全局缩放容器 -->
     <div id="game-scale-wrapper">
-      
+
       <!-- 左侧 300px UI 面板 -->
       <aside id="ui-left-panel">
         <!-- 玩家信息区 -->
@@ -207,13 +215,15 @@ claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
               <div id="footer-user" class="user-name"></div>
               <div class="level-bar">
                 <span class="lvl">Lv.12</span>
-                <div class="hp-bar-bg"><div class="hp-bar-fill"></div></div>
+                <div class="hp-bar-bg">
+                  <div class="hp-bar-fill"></div>
+                </div>
               </div>
               <div class="coins">💰 1024</div>
             </div>
           </div>
         </div>
-        
+
         <!-- 主导航菜单 -->
         <nav id="ui-main-menu" class="wood-panel">
           <button class="nav-btn active">🗺️ 澡堂地图</button>
@@ -244,13 +254,15 @@ claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
 
       <!-- 右侧游戏主区域 (1024x768) -->
       <main id="game-main">
-        
+
         <!-- 顶部半透明横条 Banner -->
         <div id="ui-top-banner" style="z-index: 9999;">
           <div class="weather-info-horizontal">
-            <span class="banner-title" style="color: #ffcc00; font-family: var(--cb-font-pixel); margin-right: 20px; font-size: 14px;">🏯 赛博澡堂</span>
-            <span class="weather-icon">☀️</span>
-            <span class="date">春季 12日 (周五) 15:30</span>
+            <span class="banner-title"
+              style="color: #ffcc00; font-family: var(--cb-font-pixel); margin-right: 20px; font-size: 14px;">🏯
+              赛博澡堂</span>
+            <span class="weather-icon" id="banner-weather">☀️</span>
+            <span class="date" id="banner-clock"></span>
             <span class="ping" id="header-info">在线: 0 人</span>
           </div>
           <div class="controls-horizontal">
@@ -261,10 +273,10 @@ claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
             <span id="footer-status" class="hidden">🟢</span>
           </div>
         </div>
-        
+
         <!-- 绝对定位的右侧挂件容器 (排行榜与任务栏) -->
         <div id="ui-right-widgets">
-          
+
           <!-- 格斗排行榜 -->
           <div class="task-widget wood-panel" id="leaderboard-widget-box">
             <div class="task-header">
@@ -288,7 +300,7 @@ claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
               <li class="done">在澡堂泡澡10分钟 (已完成)</li>
             </ul>
           </div>
-          
+
         </div>
 
         <!-- 画布容器 (固定 1024x768) -->
@@ -312,4 +324,5 @@ claude mcp add cyber-bathhouse --transport http {MCP_ENDPOINT}
   </script>
   <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>

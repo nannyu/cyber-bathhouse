@@ -150,6 +150,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   bgmVolumeBtn?.addEventListener('click', cycleBgmVolumeLevel);
   syncBgmButtons();
 
+  // 顶部时钟 — 与系统时间同步
+  const bannerClock = document.getElementById('banner-clock');
+  function updateBannerClock() {
+    const now = new Date();
+    const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const weekday = weekdays[now.getDay()];
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    if (bannerClock) {
+      bannerClock.textContent = `${month}月${day}日 (${weekday}) ${hours}:${minutes}`;
+    }
+  }
+  updateBannerClock();
+  setInterval(updateBannerClock, 1000);
+
+  // 顶部天气 — 通过服务端代理获取实时天气
+  const bannerWeather = document.getElementById('banner-weather');
+  async function updateBannerWeather() {
+    try {
+      const res = await fetch('/api/weather');
+      if (res.ok) {
+        const data = await res.json();
+        if (bannerWeather && data.weather) {
+          bannerWeather.textContent = data.weather;
+        }
+      }
+    } catch (_) {
+      // 网络失败保持默认图标
+    }
+  }
+  updateBannerWeather();
+  setInterval(updateBannerWeather, 10 * 60 * 1000); // 每 10 分钟更新一次
+
   const taskToggleBtn = document.getElementById('task-toggle-btn');
   const taskWidgetBox = document.getElementById('task-widget-box');
   if (taskToggleBtn && taskWidgetBox) {
@@ -884,7 +919,7 @@ async function toggleBgmPlayback() {
     bgmPlaying = true;
     await startBgmLoop();
   } else {
-    bgmPlaying = false;
+    stopBgmLoop();
   }
   syncBgmButtons();
 }
