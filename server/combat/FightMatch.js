@@ -57,7 +57,7 @@ export class FightMatch {
     };
 
     this.eventLog = [];
-    this._lastAttackTime = 0;
+    this._arenaPositioned = false;
   }
 
   getFighter(userId) {
@@ -108,7 +108,16 @@ export class FightMatch {
       arenaId: this.arenaId,
       frame: this.frame,
       seed: this.seed,
-      fighters: Object.values(this.fighters),
+      fighters: Object.values(this.fighters).map(f => ({
+        ...f,
+        currentAction: f.currentAction ? {
+          type: f.currentAction.type,
+          phase: f.currentAction.phase,
+          skillId: f.currentAction.skill?.id ?? null,
+          skillName: f.currentAction.skill?.name ?? null,
+          frame: f.currentAction.frame,
+        } : null,
+      })),
       winnerId: this.winnerId,
       loserId: this.loserId,
     };

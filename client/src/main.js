@@ -146,6 +146,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   bgmMuteBtn?.addEventListener('click', toggleBgmMute);
   bgmVolumeBtn?.addEventListener('click', cycleBgmVolumeLevel);
   syncBgmButtons();
+
+  const taskToggleBtn = document.getElementById('task-toggle-btn');
+  const taskWidgetBox = document.getElementById('task-widget-box');
+  if (taskToggleBtn && taskWidgetBox) {
+    taskToggleBtn.addEventListener('click', () => {
+      taskWidgetBox.classList.toggle('collapsed');
+      taskToggleBtn.textContent = taskWidgetBox.classList.contains('collapsed') ? '▲' : '▼';
+    });
+  }
+
+  const lbToggleBtn = document.getElementById('leaderboard-toggle-btn');
+  const lbWidgetBox = document.getElementById('leaderboard-widget-box');
+  if (lbToggleBtn && lbWidgetBox) {
+    lbToggleBtn.addEventListener('click', () => {
+      lbWidgetBox.classList.toggle('collapsed');
+      lbToggleBtn.textContent = lbWidgetBox.classList.contains('collapsed') ? '▲' : '▼';
+    });
+  }
   if (isAgentInvitePage) {
     await initAgentInvitePage();
     return;
@@ -413,6 +431,17 @@ function enterApp(name) {
   footerUser.textContent = `🧑 ${name}`;
   footerStatus.textContent = '🟢 已连接';
 
+  // 处理游戏级硬分栏缩放 (1324x768 -> window)
+  const scaleWrapper = document.getElementById('game-scale-wrapper');
+  if (scaleWrapper) {
+    const resizeApp = () => {
+      const scale = Math.min(window.innerWidth / 1324, window.innerHeight / 768);
+      scaleWrapper.style.transform = `scale(${scale})`;
+    };
+    window.addEventListener('resize', resizeApp);
+    resizeApp();
+  }
+
   // 初始化游戏
   game = new Game(canvas);
   game.myUserId = conn.userId;
@@ -442,10 +471,14 @@ function bindConnectionHandlersOnce() {
 
     // 更新用户列表面板
     if (currentTab === 'users') renderUsersPanel(state.users);
+    
+    // 更新排行榜
+    updateLeaderboardDOM(state.leaderboard);
   });
 
   conn.on('world:state', (state) => {
     game?.updateState(state);
+    updateLeaderboardDOM(state.leaderboard);
     // 加载历史消息
     if (state.recentMessages) {
       for (const msg of state.recentMessages) {
@@ -522,6 +555,21 @@ function bindConnectionHandlersOnce() {
 function getUserNameById(userId) {
   const user = game?.worldState?.users?.find((u) => u.id === userId);
   return user?.name || '某位选手';
+}
+
+function updateLeaderboardDOM(leaderboard) {
+  if (!leaderboard) return;
+  const listEl = document.getElementById('leaderboard-list');
+  const box = document.getElementById('leaderboard-widget-box');
+  if (!listEl || box?.classList.contains('collapsed')) return;
+  
+  if (leaderboard.length === 0) {
+    listEl.innerHTML = '<li style="text-align: center; color: #a67342;">暂无排名</li>';
+  } else {
+    listEl.innerHTML = leaderboard.slice(0, 3).map((e, idx) => 
+      `<li><span>${idx + 1}. ${escapeHtml(e.name)}</span><span style="float: right; color: #2e7d32; font-weight: bold;">${e.wins}胜</span></li>`
+    ).join('');
+  }
 }
 
 // ─── Canvas 点击处理 ──────────────────────────────────
