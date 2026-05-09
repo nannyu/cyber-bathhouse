@@ -2,48 +2,22 @@
  * 战斗系统
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import { CONFIG } from '../config.js';
-
-/**
- * 单场战斗实例
- */
-class Fight {
-  constructor(attacker, defender) {
-    this.id = `fight_${uuidv4().slice(0, 8)}`;
-    this.attackerId = attacker.id;
-    this.attackerName = attacker.name;
-    this.defenderId = defender.id;
-    this.defenderName = defender.name;
-    this.startTime = Date.now();
-    this._lastAttackTime = 0;
-    this.finished = false;
-    this.winnerId = null;
-    this.loserId = null;
-  }
-
-  toJSON() {
-    return {
-      id: this.id,
-      attacker: { id: this.attackerId, name: this.attackerName },
-      defender: { id: this.defenderId, name: this.defenderName },
-      finished: this.finished,
-      winnerId: this.winnerId,
-    };
-  }
-}
+import { FightMatch } from '../combat/FightMatch.js';
+import { CombatEngine } from '../combat/CombatEngine.js';
 
 export class FightManager {
   constructor() {
-    /** @type {Map<string, Fight>} fightId → Fight */
+    /** @type {Map<string, FightMatch>} fightId → FightMatch */
     this._fights = new Map();
+    this.combatEngine = new CombatEngine();
   }
 
   /**
    * 发起战斗
    * @param {import('./User.js').User} attacker
    * @param {import('./User.js').User} defender
-   * @returns {{ success: boolean, fight?: Fight, error?: string }}
+   * @returns {{ success: boolean, fight?: FightMatch, error?: string }}
    */
   startFight(attacker, defender) {
     if (attacker.id === defender.id) {
@@ -56,7 +30,7 @@ export class FightManager {
       return { success: false, error: `${defender.name} 正在战斗中`, code: 'ALREADY_FIGHTING' };
     }
 
-    const fight = new Fight(attacker, defender);
+    const fight = new FightMatch(attacker, defender);
     this._fights.set(fight.id, fight);
 
     attacker.fightId = fight.id;
@@ -78,17 +52,14 @@ export class FightManager {
     for (const fight of this._fights.values()) {
       if (fight.finished) continue;
 
-      // 初始等待 2 秒开始第一下，或距上次超过 2 秒
-      if (fight._lastAttackTime === 0) {
-         fight._lastAttackTime = now; // 给个启动缓冲
-      } else if (now - fight._lastAttackTime >= 2000) {
-        fight._lastAttackTime = now;
-        const attacker = users.get(fight.attackerId);
-        const defender = users.get(fight.defenderId);
-        if (!attacker || !defender) continue;
-        
-        const res = this.applyDamage(attacker, defender);
-        if (res) results.push(res);
+      const frameResults = this.combatEngine.tickMatch(fight, now, users);
+      for (const res of frameResults) {
+        if (res?.finished) {
+          this._finalizeFight(fight, users);
+        }
+        if (res) {
+          results.push(res);
+        }
       }
     }
     return results;
@@ -104,65 +75,32 @@ export class FightManager {
     const fight = this._fights.get(attacker.fightId);
     if (!fight) return null;
 
-    // 随机伤害 0 到 15
-    const myDamage = Math.floor(Math.random() * 16);
-    const counterDamage = Math.floor(Math.random() * 16);
-
-    defender.hp = Math.max(0, defender.hp - myDamage);
-    attacker.hp = Math.max(0, attacker.hp - counterDamage);
-
-    const result = {
-      fightId: fight.id,
-      attackerId: attacker.id,
-      defenderId: defender.id,
-      attackerDamage: myDamage,
-      counterDamage,
-      attackerHp: attacker.hp,
-      defenderHp: defender.hp,
-      attackerName: attacker.name,
-      defenderName: defender.name,
-    };
-
-    // 检查战斗结束
-    if (defender.hp <= 0 || attacker.hp <= 0) {
-      const winner = defender.hp <= 0 ? attacker : defender;
-      const loser = winner.id === attacker.id ? defender : attacker;
-
-      fight.finished = true;
-      fight.winnerId = winner.id;
-      fight.loserId = loser.id;
-
-      // 恢复双方
-      winner.hp = CONFIG.FIGHT.MAX_HP;
-      winner.fightId = null;
-      winner.state = 'idle'; // 清除战斗状态以允许重置
-
-      loser.fightId = null;
-      loser.state = 'idle';
-      
-      // NPC 战败直接满血，否则剩 15 点
-      if (loser.id.startsWith('npc_')) {
-        loser.hp = CONFIG.FIGHT.MAX_HP;
-      } else {
-        loser.hp = 15;
-      }
-
-      // 恢复状态
-      winner._checkZoneState();
-      loser._checkZoneState();
-
-      result.finished = true;
-      result.winnerId = winner.id;
-      result.loserId = loser.id;
-      result.winnerName = winner.name;
-      result.loserName = loser.name;
-
-      // 清理
-      this._fights.delete(fight.id);
-    } else {
-      result.finished = false;
+    const result = this.combatEngine.applyExchange(fight, attacker, defender);
+    if (result?.finished) {
+      this._finalizeFight(fight, new Map([
+        [attacker.id, attacker],
+        [defender.id, defender],
+      ]));
     }
 
+    return result;
+  }
+
+  /**
+   * Manual attack by a user in an active fight.
+   * @param {string} userId
+   * @param {Map<string, import('./User.js').User>} users
+   */
+  attackByUser(userId, users) {
+    const fight = this._findFightByUser(userId);
+    if (!fight) return null;
+    const actor = users.get(userId);
+    if (!actor) return null;
+
+    const result = this.combatEngine.applyManualAttack(fight, actor, users);
+    if (result?.finished) {
+      this._finalizeFight(fight, users);
+    }
     return result;
   }
 
@@ -180,6 +118,8 @@ export class FightManager {
 
     if (opponent) {
       opponent.hp = CONFIG.FIGHT.MAX_HP;
+      opponent.rage = 0;
+      opponent.rageState = 'charging';
       opponent.fightId = null;
       opponent._checkZoneState();
     }
@@ -203,7 +143,7 @@ export class FightManager {
   /**
    * 查找包含指定用户的战斗
    * @param {string} userId
-   * @returns {Fight|undefined}
+   * @returns {FightMatch|undefined}
    */
   _findFightByUser(userId) {
     for (const fight of this._fights.values()) {
@@ -212,5 +152,43 @@ export class FightManager {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Get the active fight containing a user.
+   * @param {string} userId
+   */
+  getFightByUser(userId) {
+    return this._findFightByUser(userId);
+  }
+
+  /**
+   * Finalize user state and remove a completed match.
+   * @param {FightMatch} fight
+   * @param {Map<string, import('./User.js').User>} users
+   */
+  _finalizeFight(fight, users) {
+    const winner = users.get(fight.winnerId);
+    const loser = users.get(fight.loserId);
+
+    if (winner) {
+      winner.hp = CONFIG.FIGHT.MAX_HP;
+      winner.rage = 0;
+      winner.rageState = 'charging';
+      winner.fightId = null;
+      winner.state = 'idle';
+      winner._checkZoneState();
+    }
+
+    if (loser) {
+      loser.fightId = null;
+      loser.state = 'idle';
+      loser.rage = 0;
+      loser.rageState = 'charging';
+      loser.hp = loser.id.startsWith('npc_') ? CONFIG.FIGHT.MAX_HP : 15;
+      loser._checkZoneState();
+    }
+
+    this._fights.delete(fight.id);
   }
 }

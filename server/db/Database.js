@@ -161,6 +161,41 @@ const MIGRATIONS = [
       ON npc_dialogues(npc_id, scene);
     `,
   },
+  {
+    version: 5,
+    description: 'add fight match and event records',
+    sql: `
+      CREATE TABLE IF NOT EXISTS fight_matches (
+        id TEXT PRIMARY KEY,
+        fighter_a_id TEXT NOT NULL,
+        fighter_a_name TEXT NOT NULL,
+        fighter_b_id TEXT NOT NULL,
+        fighter_b_name TEXT NOT NULL,
+        winner_id TEXT,
+        winner_name TEXT,
+        loser_id TEXT,
+        loser_name TEXT,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        seed INTEGER NOT NULL DEFAULT 0,
+        summary_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_fight_matches_created
+      ON fight_matches(created_at);
+
+      CREATE TABLE IF NOT EXISTS fight_events (
+        id TEXT PRIMARY KEY,
+        match_id TEXT NOT NULL,
+        frame INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_fight_events_match_frame
+      ON fight_events(match_id, frame);
+    `,
+  },
 ];
 
 const DEFAULT_COMBAT_LINES = {
@@ -386,6 +421,36 @@ export class Database {
       ON npc_dialogues(npc_id, scene, text);
       CREATE INDEX IF NOT EXISTS idx_npc_dialogues_scene
       ON npc_dialogues(npc_id, scene);
+
+      CREATE TABLE IF NOT EXISTS fight_matches (
+        id TEXT PRIMARY KEY,
+        fighter_a_id TEXT NOT NULL,
+        fighter_a_name TEXT NOT NULL,
+        fighter_b_id TEXT NOT NULL,
+        fighter_b_name TEXT NOT NULL,
+        winner_id TEXT,
+        winner_name TEXT,
+        loser_id TEXT,
+        loser_name TEXT,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        seed INTEGER NOT NULL DEFAULT 0,
+        summary_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_fight_matches_created
+      ON fight_matches(created_at);
+
+      CREATE TABLE IF NOT EXISTS fight_events (
+        id TEXT PRIMARY KEY,
+        match_id TEXT NOT NULL,
+        frame INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_fight_events_match_frame
+      ON fight_events(match_id, frame);
     `);
   }
 
@@ -696,6 +761,50 @@ export class Database {
       FROM npc_dialogues
     `);
 
+    this._insertFightMatchStmt = this.db.prepare(`
+      INSERT OR REPLACE INTO fight_matches (
+        id, fighter_a_id, fighter_a_name, fighter_b_id, fighter_b_name,
+        winner_id, winner_name, loser_id, loser_name, duration_ms, seed,
+        summary_json, created_at, finished_at
+      )
+      VALUES (
+        @id, @fighterAId, @fighterAName, @fighterBId, @fighterBName,
+        @winnerId, @winnerName, @loserId, @loserName, @durationMs, @seed,
+        @summaryJson, @createdAt, @finishedAt
+      )
+    `);
+    this._insertFightEventStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO fight_events (id, match_id, frame, type, payload_json, created_at)
+      VALUES (@id, @matchId, @frame, @type, @payloadJson, @createdAt)
+    `);
+    this._getFightMatchStmt = this.db.prepare(`
+      SELECT
+        id,
+        fighter_a_id AS fighterAId,
+        fighter_a_name AS fighterAName,
+        fighter_b_id AS fighterBId,
+        fighter_b_name AS fighterBName,
+        winner_id AS winnerId,
+        winner_name AS winnerName,
+        loser_id AS loserId,
+        loser_name AS loserName,
+        duration_ms AS durationMs,
+        seed,
+        summary_json AS summaryJson,
+        created_at AS createdAt,
+        finished_at AS finishedAt
+      FROM fight_matches
+      WHERE id = ?
+      LIMIT 1
+    `);
+    this._listFightEventsStmt = this.db.prepare(`
+      SELECT id, match_id AS matchId, frame, type, payload_json AS payloadJson, created_at AS createdAt
+      FROM fight_events
+      WHERE match_id = ?
+      ORDER BY frame ASC, created_at ASC
+      LIMIT ?
+    `);
+
     this._seedDefaultCombatLines();
     this._seedDefaultNpcDialogues();
   }
@@ -889,6 +998,53 @@ export class Database {
       .filter((row) => (npcId ? row.npcId === npcId : true))
       .filter((row) => (scene ? row.scene === scene : true))
       .map((row) => row.text);
+  }
+
+  recordFightMatch(match) {
+    this._insertFightMatchStmt.run({
+      id: match.id,
+      fighterAId: match.fighterAId,
+      fighterAName: match.fighterAName,
+      fighterBId: match.fighterBId,
+      fighterBName: match.fighterBName,
+      winnerId: match.winnerId || null,
+      winnerName: match.winnerName || null,
+      loserId: match.loserId || null,
+      loserName: match.loserName || null,
+      durationMs: match.durationMs || 0,
+      seed: match.seed || 0,
+      summaryJson: JSON.stringify(match.summary || {}),
+      createdAt: match.createdAt || Date.now(),
+      finishedAt: match.finishedAt || null,
+    });
+  }
+
+  recordFightEvent(event) {
+    if (!event?.id || !event?.matchId) return;
+    this._insertFightEventStmt.run({
+      id: event.id,
+      matchId: event.matchId,
+      frame: event.frame || 0,
+      type: event.type,
+      payloadJson: JSON.stringify(event.payload || {}),
+      createdAt: event.timestamp || Date.now(),
+    });
+  }
+
+  getFightMatch(matchId) {
+    const row = this._getFightMatchStmt.get(matchId);
+    if (!row) return null;
+    return {
+      ...row,
+      summary: JSON.parse(row.summaryJson || '{}'),
+    };
+  }
+
+  listFightEvents(matchId, limit = 500) {
+    return this._listFightEventsStmt.all(matchId, limit).map((row) => ({
+      ...row,
+      payload: JSON.parse(row.payloadJson || '{}'),
+    }));
   }
 
   upsertAgentBinding(binding) {

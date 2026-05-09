@@ -214,6 +214,84 @@ export function createApiRoutes(world, auth) {
   });
 
   /**
+   * GET /api/combat/state - 获取当前战斗快照
+   */
+  router.get('/combat/state', (req, res) => {
+    const result = world.getCombatState(req.userId);
+    if (!result.success) {
+      return res.status(result.code === 'NOT_FIGHTING' ? 400 : 404).json(result);
+    }
+    res.json(result);
+  });
+
+  /**
+   * POST /api/combat/plan - 提交 AI 战术计划
+   */
+  router.post('/combat/plan', (req, res) => {
+    const {
+      style,
+      preferred_range,
+      risk,
+      meter_policy,
+      ultimate_policy,
+      current_goal,
+      rules,
+      horizon_ms,
+    } = req.body || {};
+
+    const plan = {
+      style,
+      preferredRange: preferred_range,
+      risk,
+      meterPolicy: meter_policy,
+      ultimatePolicy: ultimate_policy,
+      currentGoal: current_goal,
+      rules: Array.isArray(rules) ? rules : [],
+      expiresAt: Date.now() + Math.max(1000, Math.min(Number(horizon_ms) || 5000, 15000)),
+    };
+
+    const result = world.processCombatPlan(req.userId, plan);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  });
+
+  /**
+   * POST /api/combat/action - 提交即时动作意图（V1 兼容为触发一次交换）
+   */
+  router.post('/combat/action', (req, res) => {
+    const result = world.processCombatAction(req.userId, req.body || {});
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  });
+
+  /**
+   * GET /api/combat/matches/:matchId - 查询战斗结果
+   */
+  router.get('/combat/matches/:matchId', (req, res) => {
+    const match = auth.database.getFightMatch(req.params.matchId);
+    if (!match) {
+      return res.status(404).json({ success: false, error: '战斗不存在', code: 'MATCH_NOT_FOUND' });
+    }
+    res.json({ success: true, match });
+  });
+
+  /**
+   * GET /api/combat/matches/:matchId/replay - 查询战斗事件
+   */
+  router.get('/combat/matches/:matchId/replay', (req, res) => {
+    const limit = Math.max(1, Math.min(Number(req.query.limit) || 500, 1000));
+    const result = world.getCombatReplay(req.params.matchId, limit);
+    if (!result.success) {
+      return res.status(404).json(result);
+    }
+    res.json(result);
+  });
+
+  /**
    * POST /api/chat - 发送消息
    */
   router.post('/chat', (req, res) => {

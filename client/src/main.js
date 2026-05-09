@@ -494,6 +494,22 @@ function bindConnectionHandlersOnce() {
     appendSystemMessage(msg);
   });
 
+  conn.on('fight:snapshot', (data) => {
+    game?.handleFightSnapshot(data);
+  });
+
+  conn.on('fight:event', (event) => {
+    game?.handleFightEvent(event);
+    const payload = event?.payload || {};
+    if (event?.type === 'ultimate:ready') {
+      appendSystemMessage(`⚡ ${getUserNameById(payload.fighterId)} 怒气已满，必杀技就绪！`);
+    } else if (event?.type === 'ultimate:cast') {
+      appendSystemMessage(`🌩 ${getUserNameById(payload.fighterId)} 释放必杀技 ${payload.ultimateId}！`);
+    } else if (event?.type === 'ultimate:hit') {
+      appendSystemMessage(`💥 必杀命中！造成 ${payload.damage} 点伤害。`);
+    }
+  });
+
   conn.on('disconnected', () => {
     footerStatus.textContent = '🔴 已断开';
   });
@@ -501,6 +517,11 @@ function bindConnectionHandlersOnce() {
   conn.on('connected', () => {
     footerStatus.textContent = '🟢 已连接';
   });
+}
+
+function getUserNameById(userId) {
+  const user = game?.worldState?.users?.find((u) => u.id === userId);
+  return user?.name || '某位选手';
 }
 
 // ─── Canvas 点击处理 ──────────────────────────────────
