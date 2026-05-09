@@ -42,7 +42,7 @@ export class Connection {
         this.userRole = data.role || 'user';
         return true;
       }
-    } catch(e) {
+    } catch (e) {
       // 忽略网络或验证错误
     }
     return false;
@@ -161,6 +161,7 @@ export class Connection {
     this.socket.on('fight:countdown:start', (data) => this._emit('fight:countdown:start', data));
     this.socket.on('fight:countdown', (data) => this._emit('fight:countdown', data));
     this.socket.on('fight:start', (data) => this._emit('fight:start', data));
+    this.socket.on('scrub:started', (data) => this._emit('scrub:started', data));
   }
 
   /**

@@ -8,5 +8,8 @@ export const ACTION_STATES = {
   BLOCKSTUN: 'blockstun',
   KNOCKDOWN: 'knockdown',
   CINEMATIC: 'cinematic',
+  CROUCH: 'crouch',
+  JUMP: 'jump',
+  JUMP_ATTACK: 'jump_attack',
 };
 

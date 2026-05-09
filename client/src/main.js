@@ -118,7 +118,7 @@ authTabs.forEach(tab => {
     authTabs.forEach(t => t.classList.remove('active'));
     e.target.classList.add('active');
     authMode = e.target.dataset.mode;
-    
+
     if (authMode === 'login') {
       formLogin.classList.remove('hidden');
       formLogin.classList.add('active');
@@ -499,7 +499,7 @@ function bindConnectionHandlersOnce() {
 
     // 更新用户列表面板
     if (currentTab === 'users') renderUsersPanel(state.users);
-    
+
     // 更新排行榜
     updateLeaderboardDOM(state.leaderboard);
   });
@@ -535,8 +535,14 @@ function bindConnectionHandlersOnce() {
     if (game) game.handleFightEnded(data);
     if (data.flee) {
       appendSystemMessage(`🏃 ${data.loserName} 临阵脱逃了，${data.winnerName} 获胜！`);
-    } else {
+    } else if (data.isDraw) {
+      appendSystemMessage('🤝 时间到！双方血量相同，平局。');
+    } else if (data.finishOutcome === 'time' && data.winnerName && data.loserName) {
+      appendSystemMessage(`⏱️ 时间到！${data.winnerName} 以血量优势获胜（击败 ${data.loserName}）。`);
+    } else if (data.winnerName && data.loserName) {
       appendSystemMessage(`🏆 ${data.winnerName} 打赢了 ${data.loserName}！`);
+    } else {
+      appendSystemMessage('战斗结束。');
     }
   });
 
@@ -587,6 +593,10 @@ function bindConnectionHandlersOnce() {
     game?.showCountdown('FIGHT!', 0, true);
   });
 
+  conn.on('scrub:started', (data) => {
+    appendSystemMessage(`🧖 王师傅开始给 ${data.userName} 搓澡了！「${data.scrubberLine}」`);
+  });
+
   conn.on('disconnected', () => {
     footerStatus.textContent = '🔴 已断开';
   });
@@ -606,11 +616,11 @@ function updateLeaderboardDOM(leaderboard) {
   const listEl = document.getElementById('leaderboard-list');
   const box = document.getElementById('leaderboard-widget-box');
   if (!listEl || box?.classList.contains('collapsed')) return;
-  
+
   if (leaderboard.length === 0) {
     listEl.innerHTML = '<li style="text-align: center; color: #a67342;">暂无排名</li>';
   } else {
-    listEl.innerHTML = leaderboard.slice(0, 3).map((e, idx) => 
+    listEl.innerHTML = leaderboard.slice(0, 3).map((e, idx) =>
       `<li><span>${idx + 1}. ${escapeHtml(e.name)}</span><span style="float: right; color: #2e7d32; font-weight: bold;">${e.wins}胜</span></li>`
     ).join('');
   }
@@ -629,6 +639,9 @@ function handleCanvasClick({ worldX, worldY, clickedUser, clickedPetOwner }) {
           conn.sendAction('flee', {});
         }
       }
+    } else if (clickedUser.id === 'npc_scrubber') {
+      // 点击王师傅 — 弹出选项菜单
+      showNpcMenu(clickedUser);
     } else {
       // 点击其他角色 — 发起打架
       if (confirm(`向 ${clickedUser.name} 发起挑战？`)) {
@@ -639,6 +652,98 @@ function handleCanvasClick({ worldX, worldY, clickedUser, clickedPetOwner }) {
     // 点击空地 — 移动
     conn.sendMove(worldX, worldY);
   }
+}
+
+/**
+ * 显示王师傅交互菜单（搓澡 / 挑战）
+ */
+function showNpcMenu(npcUser) {
+  // 移除已有菜单
+  const existing = document.getElementById('npc-menu');
+  if (existing) existing.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'npc-menu';
+  menu.style.cssText = `
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(20, 20, 35, 0.95); border: 2px solid #00f0ff;
+    border-radius: 12px; padding: 20px 28px; z-index: 9999;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.3); text-align: center;
+    font-family: sans-serif; color: #eee; min-width: 220px;
+  `;
+
+  menu.innerHTML = `
+    <div style="font-size: 16px; margin-bottom: 14px; color: #00f0ff;">🧖 王师傅</div>
+    <div style="font-size: 13px; margin-bottom: 18px; color: #aaa;">您想做什么？</div>
+    <button id="npc-menu-scrub" style="
+      display: block; width: 100%; padding: 10px; margin-bottom: 10px;
+      background: linear-gradient(135deg, #4ade80, #22c55e); border: none;
+      border-radius: 8px; color: #fff; font-size: 14px; cursor: pointer;
+      font-weight: bold;
+    ">🧴 搓澡（快速回血）</button>
+    <button id="npc-menu-fight" style="
+      display: block; width: 100%; padding: 10px; margin-bottom: 10px;
+      background: linear-gradient(135deg, #f87171, #ef4444); border: none;
+      border-radius: 8px; color: #fff; font-size: 14px; cursor: pointer;
+      font-weight: bold;
+    ">⚔️ 挑战</button>
+    <button id="npc-menu-cancel" style="
+      display: block; width: 100%; padding: 8px;
+      background: transparent; border: 1px solid #555;
+      border-radius: 8px; color: #888; font-size: 13px; cursor: pointer;
+    ">取消</button>
+  `;
+
+  document.body.appendChild(menu);
+
+  document.getElementById('npc-menu-scrub').addEventListener('click', () => {
+    menu.remove();
+    // 先走到王师傅旁边
+    conn.sendMove(npcUser.x + 30, npcUser.y);
+    // 轮询检测角色是否到达王师傅附近，到了再触发搓澡
+    let attempts = 0;
+    const maxAttempts = 60; // 最多等 6 秒
+    const checkArrival = setInterval(() => {
+      attempts++;
+      const state = game?.worldState;
+      if (!state) return;
+      const me = state.users?.find(u => u.id === conn.userId);
+      if (!me) return;
+      const dx = me.x - npcUser.x;
+      const dy = me.y - npcUser.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // 到达范围内或者已经不在走路状态（说明到了）
+      if (dist < 90 || (me.state !== 'walking' && attempts > 5)) {
+        clearInterval(checkArrival);
+        conn.sendAction('scrub', {});
+      }
+      if (attempts >= maxAttempts) {
+        clearInterval(checkArrival);
+        // 超时也尝试一次
+        conn.sendAction('scrub', {});
+      }
+    }, 100);
+  });
+
+  document.getElementById('npc-menu-fight').addEventListener('click', () => {
+    menu.remove();
+    conn.sendAction('fight', { targetName: npcUser.name });
+  });
+
+  document.getElementById('npc-menu-cancel').addEventListener('click', () => {
+    menu.remove();
+  });
+
+  // 点击菜单外部关闭
+  setTimeout(() => {
+    const closeOnOutside = (e) => {
+      if (!menu.contains(e.target)) {
+        menu.remove();
+        document.removeEventListener('mousedown', closeOnOutside);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+  }, 100);
 }
 
 // ─── 侧边栏 ──────────────────────────────────────────

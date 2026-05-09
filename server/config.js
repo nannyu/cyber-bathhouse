@@ -2,8 +2,17 @@
  * 赛博澡堂 — 服务端配置
  */
 
-/** 底部擂台矩形 — ZONES.ARENA 与 ARENA_FIGHT 行坐标同源 */
-const ARENA_ZONE_RECT = { x: 50, y: 600, width: 900, height: 150 };
+/** map_bg.jpg 中擂台可战斗矩形（世界坐标，背景尺寸 1024x768） */
+const ARENA_FIGHT_RECT = { x: 393, y: 526, width: 275, height: 162 };
+const ARENA_FIGHT_CORNERS = {
+  topLeft: { x: 393, y: 526 },
+  topRight: { x: 668, y: 526 },
+  bottomRight: { x: 668, y: 688 },
+  bottomLeft: { x: 393, y: 688 },
+};
+
+/** 底部擂台矩形 — ZONES.ARENA 与 ARENA_FIGHT 同源 */
+const ARENA_ZONE_RECT = { ...ARENA_FIGHT_RECT };
 
 export const CONFIG = {
   // 服务器
@@ -29,7 +38,7 @@ export const CONFIG = {
     /** 底部擂台逻辑区（地走、排队与此对齐） */
     ARENA: { ...ARENA_ZONE_RECT },
   },
-  
+
   // 搓澡床位
   SCRUB_BEDS: [
     { id: 'bed1', box: { x: 560, y: 60, width: 80, height: 60 }, occupied: false },
@@ -73,6 +82,14 @@ export const CONFIG = {
   // 角色移动速度 (像素/秒)
   MOVE_SPEED: 120,
 
+  // 搓澡
+  SCRUB: {
+    HEAL_PER_TICK: 10,        // 每次回血量（很快）
+    TICK_INTERVAL: 500,       // 每 0.5 秒回一次血
+    PROXIMITY_RANGE: 120,      // 靠近王师傅多少像素可触发搓澡
+    DURATION: 8000,           // 搓澡持续 8 秒
+  },
+
   // 战斗
   FIGHT: {
     MIN_DAMAGE: 5,
@@ -81,18 +98,25 @@ export const CONFIG = {
     MAX_HP: 100,
   },
 
-  // 格斗场：对战行在 ZONES.ARENA 垂直方向居中偏上（擂台心，非底边）
+  // 格斗场：所有边界从背景图中量出的可战斗矩形推导，避免和视觉擂台错位
   ARENA_FIGHT: (() => {
-    const az = ARENA_ZONE_RECT;
-    // 越小越靠屏幕上方；0.28 ≈ 擂台区上中区域（原 0.42 仍偏下）
-    const rowY = Math.round(az.y + az.height * 0.28);
+    const az = ARENA_FIGHT_RECT;
+    const tickRate = parseInt(process.env.TICK_RATE || '20', 10);
+    const roundSec = parseInt(process.env.FIGHT_ROUND_SECONDS || '60', 10);
+    const minX = az.x;
+    const maxX = az.x + az.width;
+    const minY = az.y;
+    const maxY = az.y + az.height;
+    const rowY = Math.round(az.y + az.height / 2);
     const cx = Math.round(az.x + az.width / 2);
     return {
+      bounds: { ...az },
+      corners: { ...ARENA_FIGHT_CORNERS },
       centerX: cx,
       centerY: rowY,
       leftSpawn: { x: cx - 80, y: rowY },
       rightSpawn: { x: cx + 80, y: rowY },
-      combatLimits: { minX: 280, maxX: 720, y: rowY },
+      combatLimits: { minX, maxX, minY, maxY, y: rowY },
       leftBench: [
         { x: 120, y: rowY - 38 },
         { x: 120, y: rowY },
@@ -108,6 +132,9 @@ export const CONFIG = {
       countdownMs: 3000,
       fightStartFlashMs: 800,
       postFightWaitMs: 1500,
+      /** 单场对战时长（秒，仅统计 phase=active 的格斗帧） */
+      roundDurationSec: roundSec,
+      roundDurationFrames: Math.max(1, roundSec * tickRate),
       /** 被击退撞墙：水平速度反向并乘以此系数（轻微反弹） */
       wallKnockbackBounce: 0.42,
       /** 走位主动顶墙时给予的反向初速度（像素/帧量级，由衰减吃掉） */

@@ -33,7 +33,10 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
   const facing = arguments[1]?.facing ?? (direction === 3 ? -1 : 1);
   const knockdownElapsedMs = arguments[1]?.knockdownElapsedMs;
   const atlas = getSpriteAtlas();
-  const animKey = currentSkillId || actionState || (state === 'walking' ? 'walk' : 'idle');
+  // 搓澡状态使用 knockdown 动画（趴在床上）
+  const animKey = state === 'scrubbing'
+    ? 'knockdown'
+    : (currentSkillId || actionState || (state === 'walking' ? 'walk' : 'idle'));
 
   if (spriteId && atlas.isReady(spriteId)) {
     const charDef = atlas.manifest?.characters?.[spriteId];
@@ -41,12 +44,35 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
     const fps = anim?.fps || 8;
     const nf = anim?.frames || 1;
     let frameIdx = phaseFrame > 0 ? Math.floor((phaseFrame * fps) / 20) : (frame % nf);
-    if (animKey === 'knockdown' && knockdownElapsedMs != null) {
-      frameIdx = knockdownElapsedMs < KO_DOWN_FIRST_FRAME_MS ? 0 : nf - 1;
+    if (animKey === 'knockdown') {
+      if (knockdownElapsedMs != null) {
+        frameIdx = knockdownElapsedMs < KO_DOWN_FIRST_FRAME_MS ? 0 : nf - 1;
+      } else if (state === 'scrubbing') {
+        // 搓澡时固定使用倒地最后一帧（趴平）
+        frameIdx = nf - 1;
+      }
     }
     // 不同精灵表的原生朝向不同（brawler→右、punk→左），按 manifest 决定何时镜像。
     const native = charDef?.nativeFacing === 'left' ? -1 : 1;
     const flipX = facing !== native;
+
+    // 搓澡/战败状态：在精灵表绘制前应用旋转变换
+    if (state === 'scrubbing' || state === 'defeated') {
+      ctx.save();
+      ctx.translate(x + 24, y + 32);
+      if (state === 'defeated') {
+        ctx.rotate(Math.PI / 2);
+      }
+      // 搓澡时轻微抖动
+      if (state === 'scrubbing') {
+        const scrubShake = Math.sin(Date.now() * 0.01) * 1.5;
+        ctx.translate(scrubShake, 0);
+      }
+      const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, 0, 0, { flipX });
+      ctx.restore();
+      if (drawn) return;
+    }
+
     const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, x + 24, y + 32, {
       flipX,
     });
@@ -73,7 +99,13 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
 
   if (state === 'scrubbing' || state === 'defeated') {
     ctx.translate(30, 32);
-    ctx.rotate(state === 'defeated' ? Math.PI / 2 : -Math.PI / 2); // 战败向右倒
+    if (state === 'defeated') {
+      ctx.rotate(Math.PI / 2); // 战败向右倒
+    } else {
+      // 搓澡时轻微抖动，不旋转
+      const scrubShake = Math.sin(Date.now() * 0.01) * 1.5;
+      ctx.translate(scrubShake, 0);
+    }
     ctx.translate(-30, -32);
   }
 
@@ -470,19 +502,40 @@ export function drawHPBar(ctx, { x, y, hp, maxHp }) {
 /**
  * 绘制用户名标签
  */
-export function drawNameTag(ctx, { x, y, name, type }) {
+export function drawNameTag(ctx, { x, y, name, type, isNpc }) {
   ctx.save();
 
-  ctx.font = '8px "Press Start 2P", monospace';
+  const fontSize = 8;
+  ctx.font = `bold ${fontSize}px "Press Start 2P", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
 
-  // Agent 用紫色，浏览器用蓝色
-  ctx.fillStyle = type === 'agent' ? '#b829dd' : '#00f0ff';
-  ctx.globalAlpha = 0.8;
-
   const icon = type === 'agent' ? '🤖' : '';
-  ctx.fillText(`${icon}${name}`, Math.floor(x), Math.floor(y));
+  const displayText = `${icon}${name}`;
+
+  // 测量文字宽度用于背景气泡
+  const textWidth = ctx.measureText(displayText).width;
+  const padX = 4;
+  const padY = 3;
+  const bgX = Math.floor(x) - textWidth / 2 - padX;
+  const bgY = Math.floor(y) - fontSize - padY;
+  const bgW = textWidth + padX * 2;
+  const bgH = fontSize + padY * 2;
+
+  // 半透明背景气泡
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(bgX, bgY, bgW, bgH);
+
+  // 文字颜色：NPC 用金色，Agent 用紫色，玩家用白色
+  if (isNpc) {
+    ctx.fillStyle = '#ffd700';
+  } else if (type === 'agent') {
+    ctx.fillStyle = '#c084fc';
+  } else {
+    ctx.fillStyle = '#ffffff';
+  }
+
+  ctx.fillText(displayText, Math.floor(x), Math.floor(y));
 
   ctx.restore();
 }

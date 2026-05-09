@@ -32,7 +32,7 @@ export class CombatEngine {
     this.skillRegistry = skillRegistry;
     this.rageSystem = rageSystem;
     this.policyManager = policyManager;
-    this.tacticalDirector = new TacticalDirector(policyManager);
+    this.tacticalDirector = new TacticalDirector(policyManager, skillRegistry);
     this.reactiveController = new ReactiveController(skillRegistry);
 
     /** @type {Map<string, OpponentProfile>} fighterId → profile of their opponent */
@@ -53,11 +53,7 @@ export class CombatEngine {
     // Position fighters in arena on first tick
     this._ensureArenaPositions(match, users);
 
-    const arenaY = ARENA_LIMITS.y;
-    for (const fighter of Object.values(match.fighters)) {
-      fighter.y = arenaY;
-    }
-
+    // 不再锁定 Y 轴，允许垂直位移
     const events = [];
 
     // 1. Advance frame states: cooldowns, stun, guard, skill phases
@@ -88,9 +84,12 @@ export class CombatEngine {
     this._syncFightersToUsers(match, users);
 
     // 7. Check if anyone is KO'd
-    const finished = this._checkFightEnd(match, users, events);
+    const finishedKo = this._checkFightEnd(match, users, events);
+    // 8. Round timer（仅双方仍存活时判胜负或平局）
+    const finishedTime = !finishedKo && this._checkRoundTimeUp(match, users, events);
+    const finished = finishedKo || finishedTime;
 
-    // 8. Build result if anything notable happened this frame
+    // 9. Build result if anything notable happened this frame
     if (finished || hitResults.length > 0 || events.length > 0) {
       return [this._buildResult(match, hitResults, events, finished)];
     }
@@ -190,6 +189,39 @@ export class CombatEngine {
       }
       this._applyArenaBoundsX(fighter);
 
+      // 垂直速度衰减
+      if (Math.abs(fighter.vy || 0) > 0.05) {
+        fighter.y += fighter.vy;
+        fighter.vy *= 0.85;
+      } else {
+        fighter.vy = 0;
+      }
+      this._applyArenaBoundsY(fighter);
+
+      // 蹲下帧计时
+      if (fighter._crouchFrames > 0) {
+        fighter._crouchFrames -= 1;
+        if (fighter._crouchFrames <= 0) {
+          fighter.hurtbox = { x: -14, y: -50, width: 28, height: 50 };
+          if (fighter.actionState === ACTION_STATES.CROUCH) {
+            fighter.actionState = ACTION_STATES.IDLE;
+          }
+        }
+      }
+
+      // 跳跃帧计时 + 重力
+      if (fighter._jumpFrames > 0) {
+        fighter._jumpFrames -= 1;
+        fighter.vy += 1.2; // 重力
+        if (fighter._jumpFrames <= 0) {
+          fighter.vy = 0;
+          fighter.hurtbox = { x: -14, y: -50, width: 28, height: 50 };
+          if (fighter.actionState === ACTION_STATES.JUMP || fighter.actionState === ACTION_STATES.JUMP_ATTACK) {
+            fighter.actionState = ACTION_STATES.IDLE;
+          }
+        }
+      }
+
       fighter.stateFrame = (fighter.stateFrame || 0) + 1;
     }
 
@@ -245,6 +277,10 @@ export class CombatEngine {
 
       if (action.type === 'move') {
         fighter.x += action.dx;
+        // 垂直位移
+        if (action.dy) {
+          fighter.y += action.dy;
+        }
         // Prevent passing through opponent
         if (opponent) {
           const minDist = 16;
@@ -255,8 +291,24 @@ export class CombatEngine {
           }
         }
         this._applyArenaBoundsX(fighter, action.dx);
+        this._applyArenaBoundsY(fighter);
         fighter.actionState = Math.abs(action.dx) >= 20 ? ACTION_STATES.DASH : ACTION_STATES.WALK;
         fighter.lastIntent = action.dx > 0 ? 'approach' : 'retreat';
+      } else if (action.type === 'crouch') {
+        // 蹲下：缩小受击框高度，降低Y位置
+        fighter.actionState = ACTION_STATES.CROUCH;
+        fighter.hurtbox = { x: -14, y: -30, width: 28, height: 30 };
+        fighter._crouchFrames = 12; // 蹲下持续帧数
+        fighter.lastIntent = 'crouch';
+      } else if (action.type === 'jump') {
+        // 跳跃：向前位移 + 设置跳跃状态
+        fighter.actionState = ACTION_STATES.JUMP;
+        fighter.x += action.dx || 0;
+        fighter.vy = -8; // 向上的初速度
+        fighter._jumpFrames = 16; // 跳跃持续帧数
+        fighter.hurtbox = { x: -14, y: -60, width: 28, height: 30 };
+        this._applyArenaBoundsX(fighter, action.dx);
+        fighter.lastIntent = 'jump';
       } else if (action.type === 'skill' || action.type === 'defend') {
         this._startSkillAction(fighter, action, match, events);
       } else {
@@ -290,6 +342,24 @@ export class CombatEngine {
       events.push(match.recordEvent('ultimate:cast', {
         fighterId: fighter.userId,
         ultimateId: skill.id,
+      }));
+    }
+
+    // 远程投射物：起手扣怒气（挥空也消耗）
+    if (skill.kind === 'projectile' && (skill.rageCost || 0) > 0 && Array.isArray(events)) {
+      const cost = skill.rageCost;
+      if (!this.rageSystem.spendSkillRage(fighter, cost)) {
+        fighter.currentAction = null;
+        fighter.currentSkillId = null;
+        fighter.actionState = ACTION_STATES.IDLE;
+        fighter.phase = 'neutral';
+        return;
+      }
+      events.push(match.recordEvent('rage:spent', {
+        fighterId: fighter.userId,
+        amount: cost,
+        rage: fighter.rage,
+        reason: 'projectile_cast',
       }));
     }
 
@@ -409,6 +479,8 @@ export class CombatEngine {
       defender.actionState = ACTION_STATES.HITSTUN;
       defender.comboCounter = (defender.comboCounter || 0) + 1;
       defender.vx = (skill.knockback?.x || 10) * (attacker.facing || 1);
+      // 垂直方向击退：轻微随机方向
+      defender.vy = (skill.knockback?.y || 0) + (Math.random() - 0.5) * 6;
       defender.velocityFrames = skill.hitstunFrames || 8;
 
       // Defender's current action is interrupted
@@ -492,6 +564,59 @@ export class CombatEngine {
     return false;
   }
 
+  /**
+   * 单场时限：帧数达到 CONFIG.ARENA_FIGHT.roundDurationFrames 时结束；
+   * 双方仍有 HP 则比血量，相同则平局。
+   */
+  _checkRoundTimeUp(match, users, events) {
+    const limit = CONFIG.ARENA_FIGHT.roundDurationFrames;
+    if (!limit || match.frame < limit || match.finished) return false;
+
+    const fa = match.getFighter(match.attackerId);
+    const fb = match.getFighter(match.defenderId);
+    if (!fa || !fb) return false;
+    if (fa.hp <= 0 || fb.hp <= 0) return false;
+
+    const ha = fa.hp;
+    const hb = fb.hp;
+    if (ha > hb) {
+      match.finish(match.attackerId, match.defenderId, { outcome: 'time' });
+      const winner = users.get(match.attackerId);
+      const loser = users.get(match.defenderId);
+      events.push(match.recordEvent('fight:time_up', {
+        winnerId: match.attackerId,
+        loserId: match.defenderId,
+        attackerHp: ha,
+        defenderHp: hb,
+        winnerName: winner?.name ?? fa.name,
+        loserName: loser?.name ?? fb.name,
+      }));
+      return true;
+    }
+    if (hb > ha) {
+      match.finish(match.defenderId, match.attackerId, { outcome: 'time' });
+      const winner = users.get(match.defenderId);
+      const loser = users.get(match.attackerId);
+      events.push(match.recordEvent('fight:time_up', {
+        winnerId: match.defenderId,
+        loserId: match.attackerId,
+        attackerHp: ha,
+        defenderHp: hb,
+        winnerName: winner?.name ?? fb.name,
+        loserName: loser?.name ?? fa.name,
+      }));
+      return true;
+    }
+    match.finishDraw();
+    events.push(match.recordEvent('fight:draw', {
+      attackerHp: ha,
+      defenderHp: hb,
+      attackerName: match.attackerName,
+      defenderName: match.defenderName,
+    }));
+    return true;
+  }
+
   _buildResult(match, hitResults, events, finished) {
     const attacker = match.getFighter(match.attackerId);
     const defender = match.getFighter(match.defenderId);
@@ -532,12 +657,14 @@ export class CombatEngine {
       finished,
       winnerId: finished ? match.winnerId : null,
       loserId: finished ? match.loserId : null,
-      winnerName: finished
+      winnerName: finished && match.winnerId
         ? (attacker?.userId === match.winnerId ? attacker?.name : defender?.name)
         : null,
-      loserName: finished
+      loserName: finished && match.loserId
         ? (attacker?.userId === match.loserId ? attacker?.name : defender?.name)
         : null,
+      finishOutcome: match.finishOutcome,
+      isDraw: finished && match.finishOutcome === 'draw',
       durationMs: Date.now() - match.startTime,
       seed: match.seed,
     };
@@ -572,6 +699,24 @@ export class CombatEngine {
       } else if (moveDx != null && moveDx > 0) {
         fighter.vx = -walkKick;
       }
+    }
+  }
+
+  /**
+   * 垂直方向擂台边界约束
+   */
+  _applyArenaBoundsY(fighter) {
+    const minY = ARENA_LIMITS.minY;
+    const maxY = ARENA_LIMITS.maxY;
+    if (minY == null || maxY == null) return;
+
+    if (fighter.y < minY) {
+      fighter.y = minY;
+      fighter.vy = Math.abs(fighter.vy || 0) * 0.3; // 轻微反弹
+    }
+    if (fighter.y > maxY) {
+      fighter.y = maxY;
+      fighter.vy = -Math.abs(fighter.vy || 0) * 0.3;
     }
   }
 

@@ -65,6 +65,90 @@ export class World {
       '您这状态，泡完澡再蒸一会更好。',
       '我给您按个节奏，血液循环会快些。',
       '背阔肌挺紧的，我帮您慢慢揉开。',
+      // 幽默/接地气
+      '搓完这一套，保您脱胎换骨。',
+      '我干这行二十年了，闭着眼都能搓。',
+      '您这皮肤底子好，一搓就亮。',
+      '别看我手糙，搓出来的活儿细着呢。',
+      '上次有个小伙子搓完直接睡着了。',
+      '这叫"赛博推拿"，独家手法。',
+      '搓澡搓的是身体，养的是精神。',
+      '您放心躺着，剩下的交给我。',
+      '我这手温是专门调过的，37.5度恒温。',
+      '泡完澡不搓一下，等于白来。',
+      // 关心/互动
+      '最近是不是加班多？背都僵了。',
+      '肩胛骨这里，我给您松一松。',
+      '深呼吸，跟着我的节奏来。',
+      '这一块淤堵比较严重，我慢慢来。',
+      '搓完记得多喝点水，排排毒。',
+      '您这体质，建议一周来两次。',
+      '腰椎两侧我重点走一遍。',
+      '翻个身，我给您搓搓前胸。',
+      '好了好了，这块已经通了。',
+      '感觉到热了吧？血液循环起来了。',
+      // 赛博朋克风味
+      '您这机械臂接口处也需要保养啊。',
+      '赛博时代了，人还是得搓澡。',
+      '再先进的义体也替代不了一次好搓澡。',
+      '我这搓澡巾可是纳米纤维的。',
+      '霓虹灯下搓澡，别有一番风味。',
+      '数据跑得再快，身体也得慢下来。',
+      // 老师傅唠嗑
+      '我跟您说，搓澡这事儿急不得。',
+      '您这后背，跟搓衣板似的，得下功夫。',
+      '哎，今天第八位了，手艺没退步吧？',
+      '我徒弟搓了三年还没我一半功力。',
+      '老话说得好，千金难买一身轻。',
+      '您闭眼歇着，我心里有数。',
+      '这一搓下去，三天不累。',
+      '我这双手啊，比任何仪器都准。',
+      '搓澡不光是技术，还得有感情。',
+      '您这泥搓出来都是赛博色的。',
+      // 养生哲学
+      '通则不痛，痛则不通，老祖宗的话。',
+      '气血一通，百病不生。',
+      '现代人就是缺这一搓。',
+      '搓澡是最古老的排毒方式。',
+      '皮肤是最大的器官，得伺候好。',
+      '每一寸皮肤都值得被认真对待。',
+      '搓完您再照镜子，保证不一样。',
+      '养生第一步，先把身上的旧气搓掉。',
+      // 吹牛/自信
+      '我王师傅搓澡，从没有回头客不满意的。',
+      '这条街上，就没有我搓不开的结。',
+      '有人专门坐飞船来找我搓澡，信不？',
+      '我这手法，申请过非遗的。',
+      '隔壁澡堂的师傅都来偷师，没学会。',
+      '搓完您就知道，什么叫物超所值。',
+      // 日常闲聊
+      '今天池子水温调得刚好，泡完再来。',
+      '外面霓虹灯又换新的了，越来越花哨。',
+      '昨天有个 AI 来搓澡，还挺配合。',
+      '您是常客了吧？身体比上次松多了。',
+      '搓完去休息区躺一会儿，别急着走。',
+      '下次带朋友来，我给打个折。',
+      // Vibe Coding 相关
+      '写代码写累了吧？来，搓一搓，bug 自然就通了。',
+      '您这肩膀硬得跟 legacy code 似的。',
+      '搓澡就像重构，得一层一层来。',
+      '放松，别想那些 PR review 了。',
+      '我搓澡跟您写代码一样，讲究心流。',
+      'Vibe coding 讲究氛围，搓澡也是。',
+      '代码要 clean，身体也要 clean。',
+      '这一搓，相当于给您的身体做了次 refactor。',
+      '别 debug 了，先 debug 一下自己的身体。',
+      '您这后背的结节，比技术债还顽固。',
+      '搓完保您灵感爆发，一晚上写三个 feature。',
+      '写代码靠 AI，搓澡还得靠我老王。',
+      '我这手法就是人肉版的 Copilot。',
+      '您就当这是给身体做一次 code review。',
+      '紧张什么？又不是线上 P0 故障。',
+      '搓澡不需要单元测试，效果立竿见影。',
+      '我看您这个姿势，一坐就是八小时吧？',
+      '程序员的肩颈问题，我见得多了。',
+      '搓完这一套，手速至少快 20%。',
+      '代码可以回滚，身体可不能，得保养。',
     ];
   }
 
@@ -296,6 +380,84 @@ export class World {
   }
 
   /**
+   * 处理搓澡请求 — 玩家靠近王师傅时触发
+   * @param {string} userId
+   */
+  processScrub(userId) {
+    const user = this.users.get(userId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+
+    if (user.state === 'fighting' || user.state === 'awaiting_fight' || user.state === 'walking_to_arena') {
+      return { success: false, error: '战斗中无法搓澡', code: 'ALREADY_FIGHTING' };
+    }
+
+    if (user.state === 'scrubbing') {
+      return { success: false, error: '正在搓澡中', code: 'ALREADY_SCRUBBING' };
+    }
+
+    // 检查王师傅是否正在给别人搓澡
+    for (const u of this.users.values()) {
+      if (u.id !== userId && u.id !== 'npc_scrubber' && u.state === 'scrubbing' && u._scrubTimer > 0) {
+        return { success: false, error: `王师傅正在给「${u.name}」搓澡，请稍等`, code: 'SCRUBBER_BUSY' };
+      }
+    }
+
+    // 检查是否靠近王师傅（或正在走向王师傅）
+    const scrubber = this.getUser('npc_scrubber');
+    if (!scrubber) return { success: false, error: '王师傅不在', code: 'NPC_NOT_FOUND' };
+
+    const dx = user.x - scrubber.x;
+    const dy = user.y - scrubber.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // 也检查移动目标是否靠近王师傅（角色可能还在走路途中）
+    const tdx = user.targetX - scrubber.x;
+    const tdy = user.targetY - scrubber.y;
+    const targetDist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+    const range = CONFIG.SCRUB?.PROXIMITY_RANGE || 120;
+
+    if (dist > range && targetDist > range) {
+      return { success: false, error: '离王师傅太远了，走近一点吧', code: 'TOO_FAR' };
+    }
+
+    // 如果还在走路中，先等到达再开始搓澡：强制设置位置到王师傅旁边
+    if (user.state === 'walking' || dist > 60) {
+      user.x = scrubber.x + 30;
+      user.y = scrubber.y;
+      user.targetX = user.x;
+      user.targetY = user.y;
+    }
+
+    // 开始搓澡
+    const started = user.startScrubbing();
+    if (!started) {
+      return { success: false, error: '无法开始搓澡', code: 'INVALID_STATE' };
+    }
+
+    // 王师傅说话
+    const scrubberLines = this._getScrubberLines();
+    const line = scrubberLines[Math.floor(Math.random() * scrubberLines.length)];
+    scrubber.showBubble(line);
+
+    // 广播搓澡开始事件
+    this._broadcast('scrub:started', {
+      userId: user.id,
+      userName: user.name,
+      scrubberLine: line,
+      duration: CONFIG.SCRUB?.DURATION || 8000,
+    });
+
+    return {
+      success: true,
+      message: `🧖 王师傅开始给你搓澡了！「${line}」`,
+      duration: CONFIG.SCRUB?.DURATION || 8000,
+      healPerTick: CONFIG.SCRUB?.HEAL_PER_TICK || 10,
+      tickInterval: CONFIG.SCRUB?.TICK_INTERVAL || 500,
+    };
+  }
+
+  /**
    * 处理发起挑战
    * @param {string} attackerId
    * @param {string} targetName
@@ -421,7 +583,7 @@ export class World {
     // 找赢家
     const winnerId = fight.attackerId === userId ? fight.defenderId : fight.attackerId;
     const winner = this.users.get(winnerId);
-    
+
     if (winner) {
       winner.hp = CONFIG.FIGHT.MAX_HP;
       winner.rage = 0;
@@ -434,7 +596,7 @@ export class World {
       this.leaderboard.set(winner.name, wins);
       this.database.addWin(winner.name);
     }
-    
+
     user.fightId = null;
     user.state = 'idle';
     user.rage = 0;
@@ -446,7 +608,7 @@ export class World {
       user.hp = 15;
     }
     user._checkZoneState();
-    
+
     this.fightManager._fights.delete(fight.id);
 
     this._broadcast('fight:ended', {
@@ -541,27 +703,59 @@ export class World {
     // 搓澡 NPC 逻辑 — 仅当不在战斗/排队/走入场地时跑闲置 AI
     const scrubber = this.getUser('npc_scrubber');
     if (scrubber && !scrubber.fightId) {
-      const idleAI = scrubber.state !== 'fighting'
-        && scrubber.state !== 'awaiting_fight'
-        && scrubber.state !== 'walking_to_arena';
-      if (idleAI) {
-        if (scrubbingUser) {
-          scrubber.targetX = scrubbingUser.x - 30; // 走向客人旁边
-          scrubber.targetY = scrubbingUser.y;
-          scrubber.state = 'walking';
-          if (Math.abs(scrubber.x - scrubber.targetX) < 5 && Math.random() < 0.05 && !scrubber._bubbleText) {
-            const scrubberLines = this._getScrubberLines();
-            const line = scrubberLines[Math.floor(Math.random() * scrubberLines.length)];
-            scrubber.showBubble(line);
+      // 被击败后延迟恢复
+      if (scrubber._postDefeatDelay > 0) {
+        scrubber._postDefeatDelay -= dt;
+        // 延迟期间不做任何事，保持原地不动
+      } else {
+        const idleAI = scrubber.state !== 'fighting'
+          && scrubber.state !== 'awaiting_fight'
+          && scrubber.state !== 'walking_to_arena';
+        if (idleAI) {
+          if (scrubbingUser) {
+            scrubber.targetX = scrubbingUser.x - 30; // 走向客人旁边
+            scrubber.targetY = scrubbingUser.y;
+            scrubber.state = 'walking';
+
+            // 每 2 秒说一句随机台词
+            if (!this._scrubberTalkTimer) this._scrubberTalkTimer = 0;
+            this._scrubberTalkTimer += dt;
+            if (this._scrubberTalkTimer >= 2000) {
+              this._scrubberTalkTimer = 0;
+              const scrubberLines = this._getScrubberLines();
+              const line = scrubberLines[Math.floor(Math.random() * scrubberLines.length)];
+              scrubber.showBubble(line);
+            }
+          } else {
+            // 没人搓澡时重置计时器
+            this._scrubberTalkTimer = 0;
+
+            // 没有人在搓澡时，检查是否有人靠近王师傅（自动招揽）
+            const range = CONFIG.SCRUB?.PROXIMITY_RANGE || 120;
+            let nearbyUser = null;
+            for (const u of this.users.values()) {
+              if (u.id === 'npc_scrubber') continue;
+              if (u.state === 'fighting' || u.state === 'scrubbing' || u.state === 'walking') continue;
+              const dx = u.x - scrubber.x;
+              const dy = u.y - scrubber.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < range) {
+                nearbyUser = u;
+                break;
+              }
+            }
+            if (nearbyUser && !scrubber._bubbleText && Math.random() < 0.02) {
+              scrubber.showBubble('来搓个澡吧，包您舒坦！');
+            }
+
+            // 返回原位
+            scrubber.targetX = 410;
+            scrubber.targetY = 110;
+            scrubber.state = 'walking';
+            if (Math.abs(scrubber.x - scrubber.targetX) < 5) scrubber.state = 'idle';
           }
-        } else {
-          // 返回原位
-          scrubber.targetX = 410;
-          scrubber.targetY = 110;
-          scrubber.state = 'walking';
-          if (Math.abs(scrubber.x - scrubber.targetX) < 5) scrubber.state = 'idle';
         }
-      }
+      } // end postDefeatDelay else
     }
 
     // 战斗 staging + 自动战斗结算（state 由 FightManager 管控：
@@ -573,9 +767,11 @@ export class World {
         this.database.recordFightEvent(event);
       }
       if (res.finished) {
-        const wins = (this.leaderboard.get(res.winnerName) || 0) + 1;
-        this.leaderboard.set(res.winnerName, wins);
-        this.database.addWin(res.winnerName);
+        if (res.winnerName && !res.isDraw) {
+          const wins = (this.leaderboard.get(res.winnerName) || 0) + 1;
+          this.leaderboard.set(res.winnerName, wins);
+          this.database.addWin(res.winnerName);
+        }
         // Generate enhanced match summary with MatchAnalyzer
         const match = this.fightManager._fights.get(res.fightId);
         let summary = res;
@@ -593,6 +789,8 @@ export class World {
           loserId: res.loserId,
           winnerName: res.winnerName,
           loserName: res.loserName,
+          isDraw: !!res.isDraw,
+          finishOutcome: res.finishOutcome || null,
           analysis: summary.analysis,
         });
       } else {
@@ -633,8 +831,8 @@ export class World {
       users: [...this.users.values()].map(u => u.toJSON()),
       fights: this.fightManager.getActiveFights(),
       recentMessages: this.chatManager.getRecentMessages(50),
-      leaderboard: [...this.leaderboard.entries()].map(([name, wins]) => ({name, wins}))
-                     .sort((a, b) => b.wins - a.wins).slice(0, 5),
+      leaderboard: [...this.leaderboard.entries()].map(([name, wins]) => ({ name, wins }))
+        .sort((a, b) => b.wins - a.wins).slice(0, 5),
     };
   }
 

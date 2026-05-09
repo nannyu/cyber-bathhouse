@@ -75,6 +75,10 @@ export class User {
     // 回血计时器
     this._healTimer = 0;
 
+    // 搓澡计时器
+    this._scrubTimer = 0;         // 搓澡剩余时间
+    this._scrubHealTimer = 0;     // 搓澡回血间隔计时
+
     // 战斗引用
     this.fightId = null;
 
@@ -132,12 +136,33 @@ export class User {
 
     // 区域恢复生命值逻辑
     if (this.state === STATES.SAUNA || this.state === STATES.SCRUBBING || this.state === STATES.SOAKING) {
-      this._healTimer += dt;
-      if (this._healTimer >= 1000) { // 每秒回血
-        this._healTimer = 0;
-        if (this.hp < CONFIG.FIGHT.MAX_HP) {
-          let healAmount = this.state === STATES.SCRUBBING ? 5 : (this.state === STATES.SAUNA ? 3 : 1);
-          this.hp = Math.min(CONFIG.FIGHT.MAX_HP, this.hp + healAmount);
+      if (this.state === STATES.SCRUBBING) {
+        // 搓澡使用独立的快速回血逻辑
+        this._scrubHealTimer += dt;
+        const scrubCfg = CONFIG.SCRUB || { HEAL_PER_TICK: 10, TICK_INTERVAL: 500, DURATION: 8000 };
+        if (this._scrubHealTimer >= scrubCfg.TICK_INTERVAL) {
+          this._scrubHealTimer = 0;
+          if (this.hp < CONFIG.FIGHT.MAX_HP) {
+            this.hp = Math.min(CONFIG.FIGHT.MAX_HP, this.hp + scrubCfg.HEAL_PER_TICK);
+          }
+        }
+        // 搓澡持续时间倒计时
+        if (this._scrubTimer > 0) {
+          this._scrubTimer -= dt;
+          if (this._scrubTimer <= 0) {
+            this._scrubTimer = 0;
+            this.state = STATES.IDLE;
+            this._checkZoneState();
+          }
+        }
+      } else {
+        this._healTimer += dt;
+        if (this._healTimer >= 1000) { // 每秒回血
+          this._healTimer = 0;
+          if (this.hp < CONFIG.FIGHT.MAX_HP) {
+            let healAmount = this.state === STATES.SAUNA ? 3 : 1;
+            this.hp = Math.min(CONFIG.FIGHT.MAX_HP, this.hp + healAmount);
+          }
         }
       }
     }
@@ -204,6 +229,19 @@ export class User {
   }
 
   /**
+   * 开始搓澡（由王师傅触发）
+   */
+  startScrubbing() {
+    if (this.state === STATES.FIGHTING || this.state === STATES.SCRUBBING) return false;
+
+    const scrubCfg = CONFIG.SCRUB || { DURATION: 8000 };
+    this.state = STATES.SCRUBBING;
+    this._scrubTimer = scrubCfg.DURATION;
+    this._scrubHealTimer = 0;
+    return true;
+  }
+
+  /**
    * 离开池子
    */
   leavePool() {
@@ -227,7 +265,7 @@ export class User {
     // 桑拿区
     const sauna = CONFIG.ZONES.SAUNA_AREA;
     if (sauna && this.x >= sauna.x && this.x <= sauna.x + sauna.width &&
-        this.y >= sauna.y && this.y <= sauna.y + sauna.height) {
+      this.y >= sauna.y && this.y <= sauna.y + sauna.height) {
       this.state = STATES.SAUNA;
       return;
     }
@@ -236,7 +274,7 @@ export class User {
     for (const bed of CONFIG.SCRUB_BEDS) {
       const b = bed.box;
       if (this.x >= b.x && this.x <= b.x + b.width &&
-          this.y >= b.y && this.y <= b.y + b.height) {
+        this.y >= b.y && this.y <= b.y + b.height) {
         this.state = STATES.SCRUBBING;
         return;
       }
@@ -244,7 +282,7 @@ export class User {
 
     const pool = CONFIG.POOL;
     const inPool = this.x >= pool.x && this.x <= pool.x + pool.width &&
-                   this.y >= pool.y && this.y <= pool.y + pool.height;
+      this.y >= pool.y && this.y <= pool.y + pool.height;
 
     if (inPool) {
       this.state = STATES.SOAKING;
@@ -281,6 +319,7 @@ export class User {
       phaseFrame: this.phaseFrame,
       vx: this.vx,
       spriteId: this.spriteId,
+      scrubTimer: this._scrubTimer > 0 ? Math.round(this._scrubTimer) : 0,
     };
   }
 

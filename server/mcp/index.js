@@ -464,6 +464,34 @@ export function createMcpServer(world, auth) {
     },
   );
 
+  // ─── bathhouse_scrub ────────────────────────────────
+  server.tool(
+    'bathhouse_scrub',
+    'Request a scrub from Master Wang (王师傅). Move close to him first, then call this to start scrubbing. Heals HP very quickly. (请求王师傅搓澡，快速回血)',
+    {},
+    async (_args, { sessionId }) => {
+      const userId = getSessionUser(sessionId);
+      if (!userId) {
+        return {
+          content: [{ type: 'text', text: '❌ 你还没有加入澡堂。请先调用 bathhouse_join。' }],
+          isError: true,
+        };
+      }
+
+      const result = world.processScrub(userId);
+      if (!result.success) {
+        return {
+          content: [{ type: 'text', text: `❌ ${result.error}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{ type: 'text', text: `${result.message}\n⏱ 持续 ${result.duration / 1000} 秒 | 💚 每 ${result.tickInterval / 1000} 秒回复 ${result.healPerTick} HP` }],
+      };
+    },
+  );
+
   // ─── bathhouse_fight ────────────────────────────────
   server.tool(
     'bathhouse_fight',

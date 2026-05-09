@@ -350,6 +350,18 @@ export function createApiRoutes(world, auth) {
   });
 
   /**
+   * POST /api/action/scrub - 搓澡（靠近王师傅触发）
+   */
+  router.post('/action/scrub', (req, res) => {
+    const result = world.processScrub(req.userId);
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  });
+
+  /**
    * POST /api/action/fight - 发起挑战
    */
   router.post('/action/fight', (req, res) => {

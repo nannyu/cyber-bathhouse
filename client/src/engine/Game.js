@@ -76,6 +76,13 @@ export class Game {
     /** @type {Map<string, number>} 失败倒地动画 */
     this.defeatedTimers = new Map();
 
+    /** 慢动作效果（KO 时触发） */
+    this._slowMotionFactor = 1;    // 1 = 正常速度, 0.1 = 极慢
+    this._slowMotionTimer = 0;     // 剩余慢动作时间 (ms, 真实时间)
+    this._slowMotionDuration = 0;  // 总慢动作时长
+    this._koFlash = 0;             // KO 白屏闪烁
+    this._koBanner = null;         // KO 横幅
+
     /** @type {Map<string, {x: number, y: number}>} 上一帧角色位置（用于检测移动） */
     this._lastPositions = new Map();
 
@@ -117,8 +124,33 @@ export class Game {
   start() {
     this._lastTime = performance.now();
     const loop = (now) => {
-      const dt = now - this._lastTime;
+      const realDt = now - this._lastTime;
       this._lastTime = now;
+      let dt = realDt;
+
+      // KO 慢动作处理（用真实 dt 衰减计时器，用缩放后的 dt 更新游戏）
+      if (this._slowMotionTimer > 0) {
+        this._slowMotionTimer -= realDt;
+        // 慢动作因子随时间逐渐恢复到 1（二次缓出）
+        const progress = 1 - Math.max(0, this._slowMotionTimer) / this._slowMotionDuration;
+        const easedFactor = this._slowMotionFactor + (1 - this._slowMotionFactor) * (progress * progress);
+        dt = realDt * easedFactor;
+        if (this._slowMotionTimer <= 0) {
+          this._slowMotionFactor = 1;
+        }
+      }
+
+      // KO 白屏闪烁衰减
+      if (this._koFlash > 0) {
+        this._koFlash -= realDt;
+        if (this._koFlash < 0) this._koFlash = 0;
+      }
+
+      // KO 横幅衰减
+      if (this._koBanner) {
+        this._koBanner.life -= realDt;
+        if (this._koBanner.life <= 0) this._koBanner = null;
+      }
 
       this._update(dt);
       this._render();
@@ -275,11 +307,21 @@ export class Game {
     }
     if (data.fightId) this.fightSnapshots.delete(data.fightId);
 
+    if (data.isDraw) {
+      return;
+    }
     if (data.winnerName) {
       this.victoryTimers.set(data.winnerName, 3000);
     }
     if (data.loserName) {
       this.defeatedTimers.set(data.loserName, KO_DOWN_DURATION_MS);
+
+      // 触发 KO 慢动作 + 特效（拳皇风格）
+      this._slowMotionFactor = 0.15;       // 极慢
+      this._slowMotionTimer = 1200;        // 持续 1.2 秒真实时间
+      this._slowMotionDuration = 1200;
+      this.screenShake = Math.max(this.screenShake, 20);
+      this._koBanner = { life: 2500, maxLife: 2500 };
     }
   }
 
@@ -344,6 +386,18 @@ export class Game {
     }
     this.screenShake = Math.max(0, this.screenShake - dt * 0.04);
     this.effectsLayer.update(dt);
+
+    // 搓澡粒子效果 — 为正在搓澡的角色生成粒子
+    if (this.worldState?.users) {
+      for (const user of this.worldState.users) {
+        if (user.state === 'scrubbing' && user.scrubTimer > 0) {
+          // 每帧有概率生成粒子
+          if (Math.random() < 0.3) {
+            this.effectsLayer.addScrubParticle(user.x + 24, user.y + 16);
+          }
+        }
+      }
+    }
   }
 
   _render() {
@@ -413,7 +467,7 @@ export class Game {
     for (const user of sortedUsers) {
       if (user.spriteId && !this._preloadedSprites.has(user.spriteId)) {
         this._preloadedSprites.add(user.spriteId);
-        this.spriteAtlas.preload(user.spriteId).catch(() => {});
+        this.spriteAtlas.preload(user.spriteId).catch(() => { });
       }
       // 宠物（在角色下面层）
       if (user.pet) {
@@ -424,6 +478,16 @@ export class Game {
           state: user.pet.state,
           frame: this._frame,
         });
+        // 宠物加油气泡
+        if (user.pet.cheerBubble && user.pet.cheerBubbleTimer > 0) {
+          const opacity = Math.min(1, user.pet.cheerBubbleTimer / 500);
+          drawBubble(ctx, {
+            x: user.pet.x,
+            y: user.pet.y - 12,
+            text: user.pet.cheerBubble,
+            opacity,
+          });
+        }
       }
 
       // 判断是否胜利中
@@ -503,19 +567,60 @@ export class Game {
       // 名字标签
       drawNameTag(ctx, {
         x: user.x + 24,
-        y: user.y - 8,
+        y: user.y - 18,
         name: user.name,
         type: user.type,
+        isNpc: user.id?.startsWith('npc_'),
       });
 
-      // HP 条（战斗中或非满血显示）
-      if (user.state === 'fighting' || user.hp < 100) {
+      // HP 条（非满血且不在战斗中时显示，战斗中由底部 HUD 显示）
+      if (user.hp < 100 && user.state !== 'fighting') {
         drawHPBar(ctx, {
           x: user.x + 24,
           y: user.y - 2,
           hp: user.hp,
           maxHp: 100,
         });
+      }
+
+      // 搓澡进度条（仅在搓澡状态且不在战斗中时显示）
+      if (user.state === 'scrubbing' && user.scrubTimer > 0 && !user.fightId) {
+        const barWidth = 40;
+        const barHeight = 4;
+        const barX = user.x + 24 - barWidth / 2;
+        const barY = user.y - 6;
+        const maxDuration = 8000;
+        const progress = 1 - (user.scrubTimer / maxDuration);
+
+        // 背景
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(barX, barY, barWidth, barHeight);
+        // 进度（绿色渐变）
+        ctx.fillStyle = '#4ade80';
+        ctx.fillRect(barX, barY, barWidth * progress, barHeight);
+        // 边框
+        ctx.strokeStyle = '#166534';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+        // 搓澡图标
+        ctx.font = '8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('🧖 搓澡中', user.x + 24, barY - 2);
+
+        // 搓澡动作线（来回摆动的弧线表示搓澡动作）
+        const t = Date.now() * 0.008;
+        ctx.strokeStyle = 'rgba(255, 200, 100, 0.6)';
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < 3; i++) {
+          const offsetX = Math.sin(t + i * 2) * 12;
+          const lineY = user.y + 20 + i * 8;
+          ctx.beginPath();
+          ctx.moveTo(user.x + 10 + offsetX, lineY);
+          ctx.lineTo(user.x + 38 + offsetX, lineY);
+          ctx.stroke();
+        }
       }
 
       // 对话气泡
@@ -556,6 +661,7 @@ export class Game {
     this.effectsLayer.render(ctx);
     this._renderUltimateBanner(ctx, state.width, state.height);
     this._renderCountdownBanner(ctx, state.width, state.height);
+    this._renderKoEffect(ctx, state.width, state.height);
     // this._renderLeaderboard(ctx, state.width, state.leaderboard); // 已迁移至前端 DOM
 
     ctx.restore();
@@ -596,7 +702,7 @@ export class Game {
       palette: right.palette,
     });
 
-    // FIGHT 标志放底部中央
+    // FIGHT 标志放底部中央 + 倒计时
     ctx.fillStyle = 'rgba(0, 20, 40, 0.82)';
     ctx.strokeStyle = '#ff2d78';
     ctx.lineWidth = 1;
@@ -605,7 +711,21 @@ export class Game {
     ctx.fillStyle = '#ffe66d';
     ctx.font = '10px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('FIGHT', state.width / 2, hudY + 18);
+
+    // 从 fight snapshot 获取剩余时间
+    const snapshot = this.fightSnapshots.get(fight.id);
+    const remainingFrames = snapshot?.roundRemainingFrames;
+    if (remainingFrames != null && remainingFrames >= 0) {
+      const remainingSec = Math.ceil(remainingFrames / 20); // 20Hz tick rate
+      // 倒计时颜色：<10秒变红闪烁
+      if (remainingSec <= 10) {
+        ctx.fillStyle = this._frame % 4 < 2 ? '#ff2d78' : '#ffe66d';
+      }
+      ctx.fillText(`${remainingSec}s`, state.width / 2, hudY + 18);
+    } else {
+      ctx.fillText('FIGHT', state.width / 2, hudY + 18);
+    }
+
     ctx.restore();
   }
 
@@ -685,6 +805,70 @@ export class Game {
     ctx.shadowBlur = 28;
     ctx.fillStyle = isFight ? '#ffe66d' : '#fff';
     ctx.fillText(banner.label, worldWidth / 2, worldHeight / 2);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  /**
+   * KO 击倒特效渲染（拳皇风格）
+   * - 白屏闪烁
+   * - K.O. 横幅（带描边和阴影）
+   * - 径向暗角
+   */
+  _renderKoEffect(ctx, worldWidth, worldHeight) {
+    // 白屏闪烁
+    if (this._koFlash > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this._koFlash / 150);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, worldWidth, worldHeight);
+      ctx.restore();
+    }
+
+    // KO 横幅
+    if (!this._koBanner) return;
+    const banner = this._koBanner;
+    const ratio = banner.life / banner.maxLife;
+
+    ctx.save();
+
+    // 径向暗角（慢动作期间加深）
+    if (this._slowMotionTimer > 0) {
+      const vignetteAlpha = 0.4 * (1 - ratio);
+      ctx.fillStyle = `rgba(0, 0, 0, ${vignetteAlpha})`;
+      ctx.fillRect(0, 0, worldWidth, worldHeight);
+    }
+
+    // K.O. 文字 — 从大到正常的缩放动画
+    const enterProgress = Math.min(1, (1 - ratio) * 4); // 前 25% 时间做入场动画
+    const scale = 1 + (1 - enterProgress) * 2; // 从 3x 缩到 1x
+    const alpha = Math.min(1, enterProgress * 2);
+
+    ctx.globalAlpha = alpha * Math.min(1, ratio * 3); // 最后淡出
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.translate(worldWidth / 2, worldHeight / 2 - 20);
+    ctx.scale(scale, scale);
+
+    // 文字阴影
+    ctx.shadowColor = '#ff0040';
+    ctx.shadowBlur = 30;
+
+    // 描边
+    ctx.font = 'bold 48px "Press Start 2P", monospace';
+    ctx.strokeStyle = '#800020';
+    ctx.lineWidth = 4;
+    ctx.strokeText('K.O.', 0, 0);
+
+    // 填充（渐变）
+    const grad = ctx.createLinearGradient(0, -24, 0, 24);
+    grad.addColorStop(0, '#ffe66d');
+    grad.addColorStop(0.5, '#ff2d78');
+    grad.addColorStop(1, '#ff0040');
+    ctx.fillStyle = grad;
+    ctx.fillText('K.O.', 0, 0);
+
     ctx.shadowBlur = 0;
     ctx.restore();
   }

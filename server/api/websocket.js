@@ -69,6 +69,9 @@ export function initWebSocket(io, world, auth) {
         case 'pet':
           world.processPet(socket.userId, data.action);
           break;
+        case 'scrub':
+          world.processScrub(socket.userId);
+          break;
       }
     });
 

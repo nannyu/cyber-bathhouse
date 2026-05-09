@@ -208,6 +208,10 @@ export class FightManager {
       fight.countdownEndsAt = now + ARENA.countdownMs;
       fight.lastCountdownNumber = null;
 
+      // 宠物在读秒阶段就前往加油位置
+      if (attacker?.pet) attacker.pet.startCheering('left');
+      if (defender?.pet) defender.pet.startCheering('right');
+
       this._broadcast('fight:countdown:start', {
         fightId: fight.id,
         countdownMs: ARENA.countdownMs,
@@ -244,10 +248,13 @@ export class FightManager {
 
     if (remainMs <= 0) {
       fight.setPhase(FIGHT_PHASES.ACTIVE, now);
+
       this._broadcast('fight:start', {
         fightId: fight.id,
         attackerId: fight.attackerId,
         defenderId: fight.defenderId,
+        roundDurationSec: ARENA.roundDurationSec,
+        roundDurationFrames: ARENA.roundDurationFrames,
       });
     }
   }
@@ -255,7 +262,7 @@ export class FightManager {
   _driveBenchSeats(fight, users, rank, dt) {
     const attacker = users.get(fight.attackerId);
     const defender = users.get(fight.defenderId);
-    const leftSeat  = ARENA.leftBench[rank % ARENA.leftBench.length];
+    const leftSeat = ARENA.leftBench[rank % ARENA.leftBench.length];
     const rightSeat = ARENA.rightBench[rank % ARENA.rightBench.length];
 
     if (attacker) {
@@ -405,6 +412,40 @@ export class FightManager {
    * @param {number} now
    */
   _finalizeFight(fight, users, now = Date.now()) {
+    // 停止宠物加油
+    const fAttacker = users.get(fight.attackerId);
+    const fDefender = users.get(fight.defenderId);
+    if (fAttacker?.pet) fAttacker.pet.stopCheering();
+    if (fDefender?.pet) fDefender.pet.stopCheering();
+
+    const isDraw = fight.finishOutcome === 'draw';
+
+    if (isDraw) {
+      for (const uid of [fight.attackerId, fight.defenderId]) {
+        const u = users.get(uid);
+        if (!u) continue;
+        u.hp = CONFIG.FIGHT.MAX_HP;
+        u.rage = 0;
+        u.rageState = 'charging';
+        u.fightId = null;
+        u.state = 'idle';
+        this._resetCombatVisuals(u);
+        u._checkZoneState?.();
+        u.lastFightResult = {
+          finished: true,
+          fightId: fight.id,
+          winnerId: null,
+          loserId: null,
+          isDraw: true,
+          finishOutcome: 'draw',
+        };
+      }
+      fight.setPhase(FIGHT_PHASES.FINISHED, now);
+      this._fights.delete(fight.id);
+      this._lastFinishedAt = now;
+      return;
+    }
+
     const winner = users.get(fight.winnerId);
     const loser = users.get(fight.loserId);
 
@@ -415,28 +456,41 @@ export class FightManager {
       winner.fightId = null;
       winner.state = 'idle';
       this._resetCombatVisuals(winner);
-      winner._checkZoneState?.();
+      // NPC 胜利后延迟恢复，等胜利动作结束再走回原位
+      if (winner.id.startsWith('npc_')) {
+        winner._postDefeatDelay = 8000; // 胜利动画 3 秒 + 额外 5 秒
+      } else {
+        winner._checkZoneState?.();
+      }
       winner.lastFightResult = {
         finished: true,
         fightId: fight.id,
         winnerId: fight.winnerId,
         loserId: fight.loserId,
+        finishOutcome: fight.finishOutcome || 'ko',
       };
     }
 
     if (loser) {
       loser.fightId = null;
-      loser.state = 'idle';
       loser.rage = 0;
       loser.rageState = 'charging';
       loser.hp = loser.id.startsWith('npc_') ? CONFIG.FIGHT.MAX_HP : 15;
       this._resetCombatVisuals(loser);
-      loser._checkZoneState?.();
+      // NPC 被击败后延迟恢复，不立即切换状态
+      if (loser.id.startsWith('npc_')) {
+        loser.state = 'idle';
+        loser._postDefeatDelay = 5000; // 倒地动画完成后再等 5 秒
+      } else {
+        loser.state = 'idle';
+        loser._checkZoneState?.();
+      }
       loser.lastFightResult = {
         finished: true,
         fightId: fight.id,
         winnerId: fight.winnerId,
         loserId: fight.loserId,
+        finishOutcome: fight.finishOutcome || 'ko',
       };
     }
 

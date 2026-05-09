@@ -17,6 +17,7 @@ function createFighter(user, side) {
     x: Math.round(user.x),
     y: Math.round(user.y),
     vx: 0,
+    vy: 0,
     facing: side === 'left' ? 1 : -1,
     hurtbox: { x: -14, y: -50, width: 28, height: 50 },
     actionState: 'idle',
@@ -61,6 +62,8 @@ export class FightMatch {
     this.finished = false;
     this.winnerId = null;
     this.loserId = null;
+    /** @type {'ko'|'time'|'draw'|null} */
+    this.finishOutcome = null;
 
     this.attackerId = attacker.id;
     this.attackerName = attacker.name;
@@ -121,13 +124,23 @@ export class FightMatch {
     return event;
   }
 
-  finish(winnerId, loserId) {
+  finish(winnerId, loserId, { outcome = 'ko' } = {}) {
     this.state = 'finished';
     this.finished = true;
     this.winnerId = winnerId;
     this.loserId = loserId;
+    this.finishOutcome = outcome;
     this.finishedAt = Date.now();
-    this.recordEvent('fight:ko', { winnerId, loserId });
+  }
+
+  /** 时间到且双方血量相同（战斗事件由 CombatEngine 写入 eventLog） */
+  finishDraw() {
+    this.state = 'finished';
+    this.finished = true;
+    this.winnerId = null;
+    this.loserId = null;
+    this.finishOutcome = 'draw';
+    this.finishedAt = Date.now();
   }
 
   getSnapshot() {
@@ -161,6 +174,12 @@ export class FightMatch {
       })),
       winnerId: this.winnerId,
       loserId: this.loserId,
+      finishOutcome: this.finishOutcome,
+      roundDurationFrames: CONFIG.ARENA_FIGHT.roundDurationFrames,
+      roundRemainingFrames:
+        this.phase === FIGHT_PHASES.ACTIVE && !this.finished
+          ? Math.max(0, CONFIG.ARENA_FIGHT.roundDurationFrames - this.frame)
+          : null,
     };
   }
 
@@ -190,6 +209,12 @@ export class FightMatch {
       },
       finished: this.finished,
       winnerId: this.winnerId,
+      finishOutcome: this.finishOutcome,
+      roundDurationSec: CONFIG.ARENA_FIGHT.roundDurationSec,
+      roundRemainingFrames:
+        this.phase === FIGHT_PHASES.ACTIVE && !this.finished
+          ? Math.max(0, CONFIG.ARENA_FIGHT.roundDurationFrames - this.frame)
+          : null,
     };
   }
 }

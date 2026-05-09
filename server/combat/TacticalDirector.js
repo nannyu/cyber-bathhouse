@@ -3,8 +3,15 @@
  */
 
 export class TacticalDirector {
-  constructor(policyManager) {
+  constructor(policyManager, skillRegistry = null) {
     this.policyManager = policyManager;
+    this.skillRegistry = skillRegistry;
+  }
+
+  _canAffordSkill(fighter, skillId) {
+    const sk = skillId && this.skillRegistry?.get?.(skillId);
+    const cost = sk?.rageCost || 0;
+    return cost <= 0 || (fighter?.rage || 0) >= cost;
   }
 
   chooseIntent(match, fighter, opponent) {
@@ -32,9 +39,20 @@ export class TacticalDirector {
       return { intent: 'use_ultimate', skillId: 'steam_reversal', reason: 'low_hp_reversal' };
     }
 
-    // Low HP defensive
+    // Low HP defensive — 低血量时更谨慎但不完全放弃进攻
     if (ownHpRatio <= 0.25 && plan.style !== 'rushdown') {
-      return { intent: 'block', skillId: 'guard', reason: 'low_hp_defense' };
+      // 30% 概率防御，70% 概率殊死搏斗
+      if (Math.random() < 0.3) {
+        return { intent: 'block', skillId: 'guard', reason: 'low_hp_defense' };
+      }
+      // 低血量搏命：攻击欲望更强，优先重击搏一把
+      if (distance < 50 && Math.random() < 0.5) {
+        return { intent: 'heavy_attack', skillId: 'heavy_strike', reason: 'low_hp_all_in' };
+      }
+      if (distance < 70) {
+        return { intent: 'poke', skillId: 'light_punch', reason: 'low_hp_desperation' };
+      }
+      return { intent: 'approach', skillId: null, reason: 'low_hp_rush' };
     }
 
     // Analyze opponent's current action
@@ -72,6 +90,22 @@ export class TacticalDirector {
     if ((fighter.idleFramesCounter || 0) > 8) {
       return { intent: 'feint', skillId: null, reason: 'anti_idle' };
     }
+    // 随机垂直闪避（增加战斗立体感）
+    if (Math.random() < 0.08) {
+      return { intent: 'sidestep', skillId: null, reason: 'vertical_dodge' };
+    }
+    // 随机蹲下闪避高段攻击或发动下段攻击
+    if (Math.random() < 0.06) {
+      return Math.random() < 0.5
+        ? { intent: 'crouch', skillId: null, reason: 'crouch_dodge' }
+        : { intent: 'crouch_attack', skillId: 'crouch_kick', reason: 'low_mixup' };
+    }
+    // 随机跳跃接近或空中攻击
+    if (Math.random() < 0.06) {
+      return distance > 50
+        ? { intent: 'jump', skillId: null, reason: 'jump_approach' }
+        : { intent: 'jump_attack', skillId: 'jump_kick', reason: 'overhead_mixup' };
+    }
     // Random spacing adjustment even when in range (creates visible movement)
     if (Math.random() < 0.15) {
       return Math.random() < 0.5
@@ -93,7 +127,7 @@ export class TacticalDirector {
       }
       case 'turtle': {
         if (distance < 50) return { intent: 'retreat', skillId: null, reason: 'turtle_space' };
-        if (distance > 120 && Math.random() < 0.45) {
+        if (distance > 120 && Math.random() < 0.45 && this._canAffordSkill(fighter, 'neon_orb')) {
           return { intent: 'poke', skillId: 'neon_orb', reason: 'turtle_zoning' };
         }
         if (oppAction?.phase === 'startup' && Math.random() < 0.3) {
@@ -102,8 +136,11 @@ export class TacticalDirector {
         return { intent: 'block', skillId: 'guard', reason: 'turtle' };
       }
       case 'zoning': {
-        if (distance > 120) {
+        if (distance > 120 && this._canAffordSkill(fighter, 'neon_orb')) {
           return { intent: 'poke', skillId: 'neon_orb', reason: 'zoning_orb' };
+        }
+        if (distance > 120) {
+          return { intent: 'poke', skillId: 'medium_kick', reason: 'zoning_no_rage' };
         }
         if (distance < 60) {
           return { intent: 'retreat', skillId: 'back_dash', reason: 'zoning_backdash' };
