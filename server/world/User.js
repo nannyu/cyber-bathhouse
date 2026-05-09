@@ -75,6 +75,9 @@ export class User {
 
     // 战斗引用
     this.fightId = null;
+
+    // 朝向（战斗中由 CombatEngine 设置）
+    this.facing = 1;
   }
 
   /**
@@ -243,6 +246,7 @@ export class User {
       bubble: this._bubbleText,
       bubbleTimer: this._bubbleTimer,
       fightId: this.fightId,
+      facing: this.facing,
     };
   }
 

@@ -74,14 +74,35 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
     px(ctx, 0, waterY, 12, 1, 'rgba(0, 240, 255, 0.3)');
   }
 
-  // 战斗状态 — 拳头
+  // 战斗状态 — 大幅度出拳 + 身体晃动
   if (state === 'fighting') {
-    const punchX = f === 0 ? 10 : -3;
-    px(ctx, punchX, 7 + bounce, 3, 3, skin);
-    // 拳头特效
-    if (f === 0) {
-      px(ctx, 13, 6 + bounce, 2, 1, '#ff2d78');
-      px(ctx, 14, 7 + bounce, 1, 1, '#ff6e27');
+    const fightPhase = frame % 4;
+    // 身体前后晃动
+    const lungeX = fightPhase === 0 ? 4 : (fightPhase === 2 ? -3 : 0);
+    const lungeY = fightPhase === 1 ? -3 : 0;
+    ctx.translate(lungeX, lungeY);
+
+    // 交替出拳（phase 0 右拳，phase 2 左拳）
+    const isRightPunch = fightPhase === 0 || fightPhase === 1;
+    const isLeftPunch = fightPhase === 2 || fightPhase === 3;
+    const punchOffset = isRightPunch ? 1 : 0;
+
+    if (isRightPunch) {
+      // 右拳伸出
+      px(ctx, 11, 6 + bounce, 5, 4, skin);
+      px(ctx, 16, 5 + bounce, 3, 2, '#ff2d78');
+      px(ctx, 17, 7 + bounce, 2, 2, '#ff6e27');
+    }
+    if (isLeftPunch) {
+      // 左拳伸出
+      px(ctx, -4, 6 + bounce, 5, 4, skin);
+      px(ctx, -6, 5 + bounce, 3, 2, '#ff2d78');
+      px(ctx, -7, 7 + bounce, 2, 2, '#ff6e27');
+    }
+
+    // 身体倾斜残影
+    if (fightPhase === 1 || fightPhase === 3) {
+      px(ctx, isRightPunch ? 0 : 9, 9 + bounce, 2, 3, 'rgba(0,240,255,0.25)');
     }
   }
 

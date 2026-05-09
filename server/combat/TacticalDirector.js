@@ -61,13 +61,19 @@ export class TacticalDirector {
       return { intent: 'whiff_punish', skillId: 'heavy_strike', reason: 'punish_recovery' };
     }
 
-    // Distance management
+    // Distance management with random footsies movement
     const preferredDist = this._preferredDistance(plan.style);
-    if (distance > preferredDist + 25) {
+    if (distance > preferredDist + 20) {
       return { intent: 'approach', skillId: null, reason: 'close_gap' };
     }
-    if (distance < preferredDist - 25) {
+    if (distance < preferredDist - 20) {
       return { intent: 'retreat', skillId: null, reason: 'create_space' };
+    }
+    // Random spacing adjustment even when in range (creates visible movement)
+    if (Math.random() < 0.15) {
+      return Math.random() < 0.5
+        ? { intent: 'approach', skillId: null, reason: 'pressure' }
+        : { intent: 'retreat', skillId: null, reason: 'spacing' };
     }
 
     // Style-based combat

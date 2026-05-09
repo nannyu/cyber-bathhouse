@@ -26,7 +26,7 @@ export class ReactiveController {
     }
 
     if (intent === 'retreat') {
-      return { type: 'move', dx: -fighter.facing * 10, skill: null };
+      return { type: 'move', dx: -fighter.facing * 18, skill: null };
     }
 
     if (intent === 'escape_corner') {
@@ -59,6 +59,11 @@ export class ReactiveController {
       const distance = Math.abs(opponent.x - fighter.x);
       if (distance > 55) {
         return { type: 'move', dx: fighter.facing * 16, skill: null };
+      }
+      // Even when close, randomly circle around to create movement
+      if (Math.random() < 0.6) {
+        const dir = Math.random() < 0.5 ? 1 : -1;
+        return { type: 'move', dx: dir * 16, skill: null };
       }
       return { type: 'idle', skill: null };
     }

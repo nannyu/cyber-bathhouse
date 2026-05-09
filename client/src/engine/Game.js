@@ -64,6 +64,9 @@ export class Game {
     /** @type {Map<string, number>} 失败倒地动画 */
     this.defeatedTimers = new Map();
 
+    /** @type {Map<string, {x: number, y: number}>} 上一帧角色位置（用于检测移动） */
+    this._lastPositions = new Map();
+
     /** @type {number} 动画帧计数器 */
     this._frameTick = 0;
     this._frame = 0;
@@ -325,6 +328,18 @@ export class Game {
         drawState = 'victory';
       }
 
+      // 检测角色是否在移动（通过对比上一帧位置）
+      const lastPos = this._lastPositions.get(user.id);
+      const dx = lastPos ? user.x - lastPos.x : 0;
+      const dy = lastPos ? user.y - lastPos.y : 0;
+      const isMoving = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+      this._lastPositions.set(user.id, { x: user.x, y: user.y });
+
+      // 战斗中正在移动 → 显示行走动画（让移动可见）
+      if (drawState === 'fighting' && isMoving) {
+        drawState = 'walking';
+      }
+
       // 角色
       let spriteState = drawState;
       if (this.defeatedTimers.has(user.name)) {
@@ -337,7 +352,7 @@ export class Game {
         palette: user.palette,
         state: spriteState,
         frame: this._frame,
-        direction: 1,
+        direction: user.facing !== undefined ? (user.facing < 0 ? 3 : 1) : 1,
       });
 
       // 名字标签
@@ -391,7 +406,7 @@ export class Game {
     }
     ctx.globalAlpha = 1;
 
-    // 4. 渲染顶部的排行榜与横幅
+    // 4. 渲染底部的战斗 HUD（最后绘制，确保在最顶层）
     this._renderCombatHud(ctx, state);
     this._renderUltimateBanner(ctx, state.width, state.height);
     // this._renderLeaderboard(ctx, state.width, state.leaderboard); // 已迁移至前端 DOM
@@ -409,10 +424,13 @@ export class Game {
     const right = users.find((u) => u.id === fight.defender.id);
     if (!left || !right) return;
 
+    // 底部 HUD 位置（Canvas 高 768，HUD 高 50，留 10px 边距）
+    const hudY = state.height - 60;
+
     ctx.save();
     this._renderFighterHud(ctx, {
       x: 14,
-      y: 70,
+      y: hudY,
       width: 260,
       name: left.name,
       hp: left.hp,
@@ -422,7 +440,7 @@ export class Game {
     });
     this._renderFighterHud(ctx, {
       x: state.width - 274,
-      y: 70,
+      y: hudY,
       width: 260,
       name: right.name,
       hp: right.hp,
@@ -431,15 +449,16 @@ export class Game {
       palette: right.palette,
     });
 
+    // FIGHT 标志放底部中央
     ctx.fillStyle = 'rgba(0, 20, 40, 0.82)';
     ctx.strokeStyle = '#ff2d78';
     ctx.lineWidth = 1;
-    ctx.fillRect(state.width / 2 - 46, 70, 92, 28);
-    ctx.strokeRect(state.width / 2 - 46, 70, 92, 28);
+    ctx.fillRect(state.width / 2 - 46, hudY, 92, 28);
+    ctx.strokeRect(state.width / 2 - 46, hudY, 92, 28);
     ctx.fillStyle = '#ffe66d';
     ctx.font = '10px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('FIGHT', state.width / 2, 88);
+    ctx.fillText('FIGHT', state.width / 2, hudY + 18);
     ctx.restore();
   }
 

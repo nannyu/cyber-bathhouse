@@ -192,7 +192,7 @@ export class CombatEngine {
         fighter.x += action.dx;
         // Prevent passing through opponent
         if (opponent) {
-          const minDist = 24;
+          const minDist = 16;
           if (fighter.facing > 0 && fighter.x > opponent.x - minDist) {
             fighter.x = opponent.x - minDist;
           } else if (fighter.facing < 0 && fighter.x < opponent.x + minDist) {
@@ -473,8 +473,7 @@ export class CombatEngine {
       user.rageState = fighter.rageState;
       user.x = fighter.x;
       user.y = fighter.y;
-      user.targetX = fighter.x;
-      user.targetY = fighter.y;
+      user.facing = fighter.facing;
     }
   }
 
