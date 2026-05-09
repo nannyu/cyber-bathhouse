@@ -391,10 +391,10 @@ export class Game {
     }
     ctx.globalAlpha = 1;
 
-    // 4. 渲染顶部的排行榜
+    // 4. 渲染顶部的排行榜与横幅
     this._renderCombatHud(ctx, state);
     this._renderUltimateBanner(ctx, state.width, state.height);
-    this._renderLeaderboard(ctx, state.width, state.leaderboard);
+    // this._renderLeaderboard(ctx, state.width, state.leaderboard); // 已迁移至前端 DOM
 
     ctx.restore();
   }

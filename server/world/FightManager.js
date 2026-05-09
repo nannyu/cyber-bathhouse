@@ -42,17 +42,17 @@ export class FightManager {
   }
 
   /**
-   * 触发自动战斗
-   * @param {number} now
+   * Tick all active fights one frame (called at 20Hz from World.tick).
+   * @param {number} _now - unused, kept for compatibility
    * @param {Map<string, import('./User.js').User>} users
    * @returns {Array<Object>}
    */
-  tickAutoAttacks(now, users) {
+  tickAutoAttacks(_now, users) {
     const results = [];
     for (const fight of this._fights.values()) {
       if (fight.finished) continue;
 
-      const frameResults = this.combatEngine.tickMatch(fight, now, users);
+      const frameResults = this.combatEngine.tickMatch(fight, users);
       for (const res of frameResults) {
         if (res?.finished) {
           this._finalizeFight(fight, users);
@@ -66,28 +66,7 @@ export class FightManager {
   }
 
   /**
-   * 计算伤害并应用到用户
-   * @param {import('./User.js').User} attacker
-   * @param {import('./User.js').User} defender
-   * @returns {Object} 攻击结果
-   */
-  applyDamage(attacker, defender) {
-    const fight = this._fights.get(attacker.fightId);
-    if (!fight) return null;
-
-    const result = this.combatEngine.applyExchange(fight, attacker, defender);
-    if (result?.finished) {
-      this._finalizeFight(fight, new Map([
-        [attacker.id, attacker],
-        [defender.id, defender],
-      ]));
-    }
-
-    return result;
-  }
-
-  /**
-   * Manual attack by a user in an active fight.
+   * Queue a manual attack intent for the next combat tick.
    * @param {string} userId
    * @param {Map<string, import('./User.js').User>} users
    */
@@ -97,11 +76,19 @@ export class FightManager {
     const actor = users.get(userId);
     if (!actor) return null;
 
-    const result = this.combatEngine.applyManualAttack(fight, actor, users);
-    if (result?.finished) {
-      this._finalizeFight(fight, users);
-    }
-    return result;
+    this.combatEngine.applyManualAttack(fight, actor, users);
+    return { success: true, queued: true };
+  }
+
+  /**
+   * Queue an attack intent for a user.
+   * @param {string} userId
+   */
+  queueAttackIntent(userId) {
+    this.combatEngine.policyManager.queueIntent(userId, {
+      intent: 'combo_confirm',
+      skillId: 'light_punch',
+    });
   }
 
   /**

@@ -7,6 +7,7 @@ import { CONFIG } from '../config.js';
 import { User } from './User.js';
 import { ChatManager } from './ChatManager.js';
 import { FightManager } from './FightManager.js';
+import { MatchAnalyzer } from '../combat/MatchAnalyzer.js';
 
 export class World {
   constructor(database) {
@@ -82,6 +83,14 @@ export class World {
       npc.y = 110;
       npc.targetX = 410;
       npc.targetY = 110;
+      // 王师傅的战斗人格：稳健型，爱用投技破防
+      npc.combatPersonality = {
+        style: 'throw_mixup',
+        risk: 0.5,
+        preferredRange: 'close',
+        meterPolicy: 'save_for_kill',
+        ultimatePolicy: 'confirm_only',
+      };
     }
   }
 
@@ -303,7 +312,7 @@ export class World {
   }
 
   /**
-   * 处理手动攻击（旧接口兼容层）
+   * Queue an attack intent for the next combat tick.
    * @param {string} userId
    */
   processAttack(userId) {
@@ -311,60 +320,8 @@ export class World {
     if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
     if (!user.fightId) return { success: false, error: '不在战斗中', code: 'NOT_FIGHTING' };
 
-    const result = this.fightManager.attackByUser(userId, this.users);
-    if (!result) return { success: false, error: '战斗不存在', code: 'NOT_FIGHTING' };
-
-    for (const event of result.events || []) {
-      this._broadcast('fight:event', event);
-      this.database.recordFightEvent(event);
-    }
-
-    const response = {
-      success: true,
-      fightId: result.fightId,
-      damage: result.attackerDamage,
-      counterDamage: result.counterDamage,
-      yourHp: result.attackerHp,
-      yourRage: result.attackerRage,
-      opponentHp: result.defenderHp,
-      opponentRage: result.defenderRage,
-      opponentName: result.defenderName,
-      attackerSkillId: result.attackerSkillId,
-      defenderSkillId: result.defenderSkillId,
-      finished: result.finished,
-      winnerId: result.winnerId,
-      loserId: result.loserId,
-    };
-
-    if (result.finished) {
-      const wins = (this.leaderboard.get(result.winnerName) || 0) + 1;
-      this.leaderboard.set(result.winnerName, wins);
-      this.database.addWin(result.winnerName);
-      this._recordFightMatch(result);
-      this._broadcast('fight:ended', {
-        fightId: result.fightId,
-        winnerId: result.winnerId,
-        winnerName: result.winnerName,
-        loserName: result.loserName,
-      });
-    } else {
-      this._broadcast('fight:hit', {
-        fightId: result.fightId,
-        attackerName: result.attackerName,
-        defenderName: result.defenderName,
-        attackerDamage: result.attackerDamage,
-        damage: result.attackerDamage,
-        counterDamage: result.counterDamage,
-        attackerHp: result.attackerHp,
-        defenderHp: result.defenderHp,
-        attackerRage: result.attackerRage,
-        defenderRage: result.defenderRage,
-        attackerSkillId: result.attackerSkillId,
-        defenderSkillId: result.defenderSkillId,
-      });
-    }
-
-    return response;
+    this.fightManager.queueAttackIntent(userId);
+    return { success: true, message: '攻击意图已提交，将在下一帧执行' };
   }
 
   /**
@@ -381,7 +338,7 @@ export class World {
   }
 
   /**
-   * 提交一次即时战斗意图，并立刻推进一次交换。
+   * Queue a combat intent for the next tick.
    * @param {string} userId
    * @param {Object} action
    */
@@ -394,7 +351,7 @@ export class World {
       intent: action.intent,
       skillId: action.skill_id || action.skillId,
     });
-    return this.processAttack(userId);
+    return { success: true, message: '战斗意图已提交，将在下一帧执行' };
   }
 
   /**
@@ -601,12 +558,23 @@ export class World {
         const wins = (this.leaderboard.get(res.winnerName) || 0) + 1;
         this.leaderboard.set(res.winnerName, wins);
         this.database.addWin(res.winnerName);
-        this._recordFightMatch(res);
+        // Generate enhanced match summary with MatchAnalyzer
+        const match = this.fightManager._fights.get(res.fightId);
+        let summary = res;
+        if (match) {
+          const analyzer = new MatchAnalyzer();
+          summary = {
+            ...res,
+            analysis: analyzer.analyze(match),
+          };
+        }
+        this._recordFightMatch(summary);
         this._broadcast('fight:ended', {
           fightId: res.fightId,
           winnerId: res.winnerId,
           winnerName: res.winnerName,
           loserName: res.loserName,
+          analysis: summary.analysis,
         });
       } else {
         this._broadcast('fight:hit', {
@@ -715,8 +683,8 @@ export class World {
       cyber_pig: '赛博小猪',
     };
 
-    let desc = `🏯 赛博澡堂 — 当前场景\n━━━━━━━━━━━━━━━━━━━━━━━\n`;
-    desc += `📍 场景：霓虹灯闪烁的赛博朋克澡堂，蒸汽缭绕，水面泛着蓝色荧光。\n\n`;
+    let desc = `🏯 星露澡堂 — 当前场景\n━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    desc += `📍 场景：温馨木质结构的星露谷风格澡堂，大理石水池波光粼粼，周围有独立的淋浴、桑拿和休息区。\n\n`;
 
     if (users.length === 0) {
       desc += `👥 当前无人在线。澡堂空荡荡的...\n`;
