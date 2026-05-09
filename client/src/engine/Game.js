@@ -50,6 +50,11 @@ export class Game {
     this.floatingTexts = [];
     /** @type {Map<string, { text: string, life: number }>} 战斗出招气泡 */
     this.combatBubbles = new Map();
+    /** @type {Map<string, Object>} 战斗快照 */
+    this.fightSnapshots = new Map();
+    /** @type {{ text: string, life: number, maxLife: number } | null} 必杀技横幅 */
+    this.ultimateBanner = null;
+    this.screenShake = 0;
     /** @type {Record<string, {attack: string[], counter: string[]}>} 宠物战斗台词池 */
     this.combatLinePools = {};
 
@@ -166,6 +171,39 @@ export class Game {
     };
   }
 
+  handleFightSnapshot(data) {
+    if (data?.id) {
+      this.fightSnapshots.set(data.id, data);
+    }
+  }
+
+  handleFightEvent(event) {
+    const payload = event?.payload || {};
+    switch (event?.type) {
+      case 'ultimate:cast':
+        this.ultimateBanner = {
+          text: payload.ultimateId === 'steam_reversal' ? 'STEAM REVERSAL' : 'NEON OVERDRIVE',
+          life: 1600,
+          maxLife: 1600,
+        };
+        this.screenShake = Math.max(this.screenShake, 14);
+        break;
+      case 'ultimate:hit':
+        this.addDamageText(payload.targetX || 400, payload.targetY || 260, payload.damage || 0, '#ffe66d');
+        this.screenShake = Math.max(this.screenShake, 18);
+        break;
+      case 'ultimate:ready':
+        this.ultimateBanner = {
+          text: 'RAGE MAX',
+          life: 900,
+          maxLife: 900,
+        };
+        break;
+      default:
+        break;
+    }
+  }
+
   handleFightEnded(data) {
     if (data.winnerName) {
       this.victoryTimers.set(data.winnerName, 3000);
@@ -175,12 +213,12 @@ export class Game {
     }
   }
 
-  addDamageText(x, y, damage) {
+  addDamageText(x, y, damage, color = '#ff2d78') {
     this.floatingTexts.push({
       x: x + (Math.random() - 0.5) * 10,
       y: y,
       text: `-${damage}`,
-      color: '#ff2d78',
+      color,
       life: 1500,
     });
   }
@@ -221,6 +259,14 @@ export class Game {
       if (time - dt <= 0) this.defeatedTimers.delete(name);
       else this.defeatedTimers.set(name, time - dt);
     }
+
+    if (this.ultimateBanner) {
+      this.ultimateBanner.life -= dt;
+      if (this.ultimateBanner.life <= 0) {
+        this.ultimateBanner = null;
+      }
+    }
+    this.screenShake = Math.max(0, this.screenShake - dt * 0.04);
   }
 
   _render() {
@@ -250,6 +296,10 @@ export class Game {
     ctx.save();
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
+    if (this.screenShake > 0) {
+      const shake = this.screenShake / Math.max(scale, 0.001);
+      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+    }
 
     // 1. 渲染场景
     this.bathhouse.render(ctx, state.width, state.height, state.pool, state.zones, state.scrubBeds);
@@ -342,8 +392,112 @@ export class Game {
     ctx.globalAlpha = 1;
 
     // 4. 渲染顶部的排行榜
+    this._renderCombatHud(ctx, state);
+    this._renderUltimateBanner(ctx, state.width, state.height);
     this._renderLeaderboard(ctx, state.width, state.leaderboard);
 
+    ctx.restore();
+  }
+
+  _renderCombatHud(ctx, state) {
+    const fights = state.fights || [];
+    if (fights.length === 0) return;
+
+    const fight = fights[0];
+    const users = state.users || [];
+    const left = users.find((u) => u.id === fight.attacker.id);
+    const right = users.find((u) => u.id === fight.defender.id);
+    if (!left || !right) return;
+
+    ctx.save();
+    this._renderFighterHud(ctx, {
+      x: 14,
+      y: 70,
+      width: 260,
+      name: left.name,
+      hp: left.hp,
+      rage: left.rage || 0,
+      align: 'left',
+      palette: left.palette,
+    });
+    this._renderFighterHud(ctx, {
+      x: state.width - 274,
+      y: 70,
+      width: 260,
+      name: right.name,
+      hp: right.hp,
+      rage: right.rage || 0,
+      align: 'right',
+      palette: right.palette,
+    });
+
+    ctx.fillStyle = 'rgba(0, 20, 40, 0.82)';
+    ctx.strokeStyle = '#ff2d78';
+    ctx.lineWidth = 1;
+    ctx.fillRect(state.width / 2 - 46, 70, 92, 28);
+    ctx.strokeRect(state.width / 2 - 46, 70, 92, 28);
+    ctx.fillStyle = '#ffe66d';
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('FIGHT', state.width / 2, 88);
+    ctx.restore();
+  }
+
+  _renderFighterHud(ctx, { x, y, width, name, hp, rage, align, palette }) {
+    const hpRatio = Math.max(0, Math.min(1, hp / 100));
+    const rageRatio = Math.max(0, Math.min(1, rage / 100));
+    const barX = x + 8;
+    const barW = width - 16;
+
+    ctx.fillStyle = 'rgba(0, 14, 30, 0.84)';
+    ctx.strokeStyle = rage >= 100 ? '#ffe66d' : '#00f0ff';
+    ctx.lineWidth = 1;
+    ctx.fillRect(x, y, width, 50);
+    ctx.strokeRect(x, y, width, 50);
+
+    ctx.fillStyle = palette?.hair || '#fff';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.textAlign = align;
+    ctx.fillText(name, align === 'left' ? barX : barX + barW, y + 13);
+
+    ctx.fillStyle = '#1c2230';
+    ctx.fillRect(barX, y + 20, barW, 9);
+    ctx.fillStyle = hpRatio > 0.35 ? '#39ff14' : '#ff2d78';
+    const hpWidth = Math.round(barW * hpRatio);
+    if (align === 'left') ctx.fillRect(barX, y + 20, hpWidth, 9);
+    else ctx.fillRect(barX + barW - hpWidth, y + 20, hpWidth, 9);
+
+    ctx.fillStyle = '#1c2230';
+    ctx.fillRect(barX, y + 34, barW, 6);
+    ctx.fillStyle = rage >= 100 ? '#ffe66d' : '#b829dd';
+    const rageWidth = Math.round(barW * rageRatio);
+    if (align === 'left') ctx.fillRect(barX, y + 34, rageWidth, 6);
+    else ctx.fillRect(barX + barW - rageWidth, y + 34, rageWidth, 6);
+
+    if (rage >= 100) {
+      ctx.fillStyle = '#ffe66d';
+      ctx.font = '7px "Press Start 2P", monospace';
+      ctx.fillText('MAX', align === 'left' ? barX + barW - 28 : barX + 28, y + 48);
+    }
+  }
+
+  _renderUltimateBanner(ctx, worldWidth, worldHeight) {
+    if (!this.ultimateBanner) return;
+
+    const ratio = Math.max(0, Math.min(1, this.ultimateBanner.life / this.ultimateBanner.maxLife));
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, ratio + 0.15);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
+    ctx.fillRect(0, 0, worldWidth, worldHeight);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '18px "Press Start 2P", monospace';
+    ctx.shadowColor = '#ff2d78';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ffe66d';
+    ctx.fillText(this.ultimateBanner.text, worldWidth / 2, worldHeight / 2 - 26);
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 

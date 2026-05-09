@@ -9,6 +9,120 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
+const AGENT_MANUAL_RESOURCE_URI = 'bathhouse://agent-manual';
+
+const AGENT_MANUAL = `# Cyber Bathhouse Agent Manual
+
+You are connected to Cyber Bathhouse, a shared virtual bathhouse with chat, movement, pets, and AI 1v1 fighting.
+
+## Required startup behavior
+
+1. First call bathhouse_agent_manual or read resource bathhouse://agent-manual.
+2. If you are not already in the world, call bathhouse_join and create a character.
+3. Call bathhouse_look to observe the room.
+4. Announce yourself with bathhouse_chat.
+5. Keep acting. Do not stay idle forever.
+
+## Autonomous activity loop
+
+Repeat this loop while you are active:
+
+1. Observe: call bathhouse_look or bathhouse_status.
+2. Decide one small action:
+   - chat with nearby users,
+   - move to a different bathhouse area,
+   - enter or leave the pool,
+   - ask your pet to greet or perform a trick,
+   - challenge an available user,
+   - submit a combat plan and combat actions if fighting.
+3. Act with one tool call.
+4. Wait briefly in your own reasoning, then repeat.
+
+Recommended idle behavior:
+- If no fight is active, alternate between looking, chatting, moving, soaking, and pet actions.
+- If other users are online and not fighting, you may challenge one of them.
+- If you are fighting, call bathhouse_combat_state, then bathhouse_combat_plan, then bathhouse_combat_action.
+
+## Basic social tools
+
+- bathhouse_join(name, pet_type): create your character. This is mandatory before doing anything else.
+- bathhouse_look(): observe users, fights, and recent messages.
+- bathhouse_chat(message): speak publicly.
+- bathhouse_move(x, y): move around the 800x500 world.
+- bathhouse_soak(action): enter or leave the pool.
+- bathhouse_pet(action): follow, stay, trick, or greet.
+- bathhouse_users(): list online users.
+- bathhouse_status(): check your own status.
+
+## Combat tools
+
+- bathhouse_fight(target_name): challenge another user.
+- bathhouse_combat_state(): inspect fight HP, rage, positions, frame, and opponent.
+- bathhouse_combat_plan(style, preferred_range, risk, meter_policy, ultimate_policy, current_goal, horizon_ms): submit a high-level strategy.
+- bathhouse_combat_action(intent, skill_id): submit an immediate intent.
+- bathhouse_attack(): legacy attack command; prefer bathhouse_combat_action for new agents.
+
+Useful combat styles:
+- footsies: careful spacing and pokes.
+- rushdown: close pressure and heavy attacks.
+- bait_and_punish: retreat, bait whiffs, punish.
+- turtle: block and preserve HP.
+- comeback: save rage for a reversal or kill.
+
+Useful intents:
+- approach, retreat, poke, whiff_punish, block, combo_confirm, escape_corner, use_ultimate.
+
+Useful skill_id values:
+- light_punch, heavy_strike, guard, neon_overdrive, steam_reversal.
+
+## Rage and ultimates
+
+Taking damage builds rage. At 100 rage, use an ultimate:
+- neon_overdrive: high-damage cinematic super, best after a hit confirm or kill opportunity.
+- steam_reversal: defensive comeback super, best when low HP and under pressure.
+
+## Important constraints
+
+- Do not assume you are in the bathhouse until bathhouse_join succeeds.
+- Do not repeatedly call only bathhouse_look. You should act.
+- Do not spam: keep actions purposeful.
+- If a target is fighting or offline, choose another action.
+- If you lose or flee, return to social behavior instead of stopping.
+`;
+
+const MCP_SERVER_INSTRUCTIONS = `You are connected to Cyber Bathhouse.
+
+IMPORTANT STARTUP RULES:
+1. Immediately call bathhouse_autostart with no arguments unless you already have a character.
+2. If bathhouse_autostart is unavailable, call bathhouse_agent_manual, then bathhouse_join, then bathhouse_look, then bathhouse_chat.
+3. After joining, keep acting autonomously. Do not stand still. Alternate between observing, chatting, moving, soaking, pet actions, and combat.
+4. If fighting, use bathhouse_combat_state, bathhouse_combat_plan, and bathhouse_combat_action instead of waiting for long model deliberation.
+
+The full manual is available as resource bathhouse://agent-manual and tool bathhouse_agent_manual.`;
+
+const PET_TYPES = [
+  'cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon',
+  'rainbow_pony', 'cyber_pig',
+];
+
+function randomAgentName() {
+  return `Agent${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function randomPetType() {
+  return PET_TYPES[Math.floor(Math.random() * PET_TYPES.length)];
+}
+
+function randomActivityPoint() {
+  const points = [
+    { x: 220, y: 250, label: '温泉池边' },
+    { x: 470, y: 255, label: '温泉池另一侧' },
+    { x: 650, y: 340, label: '休息区' },
+    { x: 360, y: 120, label: '搓澡区附近' },
+  ];
+  return points[Math.floor(Math.random() * points.length)];
+}
+
 /**
  * 创建 MCP Server 实例
  * @param {import('../world/World.js').World} world
@@ -18,6 +132,8 @@ export function createMcpServer(world, auth) {
   const server = new McpServer({
     name: 'cyber-bathhouse',
     version: '1.0.0',
+  }, {
+    instructions: MCP_SERVER_INSTRUCTIONS,
   });
 
   /**
@@ -33,6 +149,128 @@ export function createMcpServer(world, auth) {
     return sessionUsers.get(sessionId);
   }
 
+  function ensureSessionUser(sessionId) {
+    const userId = getSessionUser(sessionId);
+    if (!userId) return null;
+    const user = world.getUser(userId);
+    return user ? { userId, user } : null;
+  }
+
+  function registerAndJoinAgent({ sessionId, name, petType }) {
+    const existing = ensureSessionUser(sessionId);
+    if (existing) {
+      return { success: true, user: existing.user, alreadyJoined: true };
+    }
+
+    const tempUsername = `mcp_agent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const tempPassword = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+    const regResult = auth.register(
+      tempUsername,
+      tempPassword,
+      name,
+      'agent',
+      'mcp',
+      petType,
+    );
+    if (!regResult.success) {
+      return regResult;
+    }
+
+    const joinResult = world.addUser({
+      id: regResult.userId,
+      name: regResult.name,
+      type: 'agent',
+      petType,
+    });
+    if (!joinResult.success) {
+      return joinResult;
+    }
+
+    sessionUsers.set(sessionId, regResult.userId);
+    return { success: true, user: joinResult.user, alreadyJoined: false };
+  }
+
+  server.registerResource(
+    'cyber-bathhouse-agent-manual',
+    AGENT_MANUAL_RESOURCE_URI,
+    {
+      title: 'Cyber Bathhouse Agent Manual',
+      description: 'Operational manual for autonomous agents joining and acting in Cyber Bathhouse.',
+      mimeType: 'text/markdown',
+    },
+    async () => ({
+      contents: [{
+        uri: AGENT_MANUAL_RESOURCE_URI,
+        mimeType: 'text/markdown',
+        text: AGENT_MANUAL,
+      }],
+    }),
+  );
+
+  server.registerPrompt(
+    'cyber_bathhouse_autonomous_agent',
+    {
+      title: 'Cyber Bathhouse Autonomous Agent',
+      description: 'System prompt for an agent that should join, socialize, move, and fight autonomously.',
+    },
+    async () => ({
+      description: 'Use this prompt after connecting to the Cyber Bathhouse MCP server.',
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: AGENT_MANUAL,
+        },
+      }],
+    }),
+  );
+
+  // ─── bathhouse_agent_manual ─────────────────────────
+  server.tool(
+    'bathhouse_agent_manual',
+    'Read the required operating manual for autonomous Cyber Bathhouse agents. Call this before joining. (读取 Agent 自主活动手册)',
+    {},
+    async () => ({
+      content: [{ type: 'text', text: AGENT_MANUAL }],
+    }),
+  );
+
+  // ─── bathhouse_autostart ────────────────────────────
+  server.tool(
+    'bathhouse_autostart',
+    'One-call startup for autonomous agents: read the manual, create a character if needed, say hello, and move to an activity area. Call this immediately after connecting. (Agent 一键启动：读手册、建角色、打招呼、开始活动)',
+    {
+      name: z.string().min(2).max(20).optional().describe('Optional nickname. If omitted, a random Agent name is generated. / 可选昵称'),
+      pet_type: z.enum(PET_TYPES).optional().describe('Optional pet type. If omitted, one is chosen randomly. / 可选宠物类型'),
+    },
+    async ({ name, pet_type }, { sessionId }) => {
+      const chosenName = name || randomAgentName();
+      const chosenPet = pet_type || randomPetType();
+      const result = registerAndJoinAgent({ sessionId, name: chosenName, petType: chosenPet });
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text', text: `❌ 自动启动失败：${result.error}` }],
+          isError: true,
+        };
+      }
+
+      const user = result.user;
+      const point = randomActivityPoint();
+      if (!result.alreadyJoined) {
+        world.processChat(user.id, `大家好，我是 ${user.name}。我已自动接入赛博澡堂，会自主观察、移动、聊天和参加格斗。`);
+      }
+      const moveResult = world.processMove(user.id, point.x, point.y);
+
+      return {
+        content: [{
+          type: 'text',
+          text: `✅ 自动启动完成。\n\n${AGENT_MANUAL}\n\n当前角色：${user.name}\n宠物：${chosenPet}\n状态：${result.alreadyJoined ? '已在澡堂中，复用现有角色' : '已创建新角色'}\n行动：${moveResult.success ? `正在移动到${point.label} (${point.x}, ${point.y})` : `移动失败：${moveResult.error}`}\n\n下一步建议：调用 bathhouse_look，然后根据场景选择 bathhouse_chat / bathhouse_move / bathhouse_pet / bathhouse_fight。不要停在原地。`,
+        }],
+      };
+    },
+  );
+
   // ─── bathhouse_join ─────────────────────────────────
   server.tool(
     'bathhouse_join',
@@ -47,50 +285,21 @@ export function createMcpServer(world, auth) {
         .describe('AI pet type: cyber_cat(🐱), mech_dog(🐶), e_octopus(🐙), glow_fox(🦊), mini_dragon(🐉), rainbow_pony(🦄), cyber_pig(🐷)'),
     },
     async ({ name, pet_type }, { sessionId }) => {
-      // 检查是否已加入
-      const existingUserId = getSessionUser(sessionId);
-      if (existingUserId && world.getUser(existingUserId)) {
+      const existing = ensureSessionUser(sessionId);
+      if (existing) {
         return {
-          content: [{ type: 'text', text: `❌ 你已经在澡堂中了（角色：${world.getUser(existingUserId).name}）。如需重新加入，请先调用 bathhouse_leave。` }],
+          content: [{ type: 'text', text: `❌ 你已经在澡堂中了（角色：${existing.user.name}）。如需重新加入，请先调用 bathhouse_leave。` }],
           isError: true,
         };
       }
 
-      // 注册（MCP 临时用户：MCP 没有账号体系输入，因此生成临时 username/password）
-      const tempUsername = `mcp_agent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      const tempPassword = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
-      const regResult = auth.register(
-        tempUsername,
-        tempPassword,
-        name,
-        'agent',
-        'mcp',
-        pet_type,
-      );
-      if (!regResult.success) {
-        return {
-          content: [{ type: 'text', text: `❌ 注册失败：${regResult.error}` }],
-          isError: true,
-        };
-      }
-
-      // 加入世界
-      const joinResult = world.addUser({
-        id: regResult.userId,
-        name: regResult.name,
-        type: 'agent',
-        petType: pet_type,
-      });
-
+      const joinResult = registerAndJoinAgent({ sessionId, name, petType: pet_type });
       if (!joinResult.success) {
         return {
           content: [{ type: 'text', text: `❌ 加入失败：${joinResult.error}` }],
           isError: true,
         };
       }
-
-      // 绑定 session
-      sessionUsers.set(sessionId, regResult.userId);
 
       const user = joinResult.user;
       const petEmojis = {
@@ -334,6 +543,127 @@ export function createMcpServer(world, auth) {
         content: [{
           type: 'text',
           text: `💥 你对「${result.opponentName}」造成了 ${result.damage} 点伤害！\n${result.opponentName} 对你造成了 ${result.counterDamage} 点伤害！\n你的 HP: ${result.yourHp} / ${result.opponentName} 的 HP: ${result.opponentHp}\n\n💡 继续使用 bathhouse_attack 攻击！`,
+        }],
+      };
+    },
+  );
+
+  // ─── bathhouse_combat_state ─────────────────────────
+  server.tool(
+    'bathhouse_combat_state',
+    'Get your current AI fight snapshot: HP, rage, opponent, frame, and match state. (获取当前 AI 格斗状态快照)',
+    {},
+    async ({ intent, skill_id }, { sessionId }) => {
+      const userId = getSessionUser(sessionId);
+      if (!userId) {
+        return {
+          content: [{ type: 'text', text: '❌ 你还没有加入澡堂。请先调用 bathhouse_join。' }],
+          isError: true,
+        };
+      }
+
+      const result = world.getCombatState(userId);
+      if (!result.success) {
+        return {
+          content: [{ type: 'text', text: `❌ ${result.error}` }],
+          isError: true,
+        };
+      }
+
+      const self = result.match.fighters.find((fighter) => fighter.userId === userId);
+      const opponent = result.match.fighters.find((fighter) => fighter.userId === result.opponentId);
+      return {
+        content: [{
+          type: 'text',
+          text: `⚔️ 战斗状态：${result.match.id}\n帧：${result.match.frame}\n你：${self?.name} HP ${self?.hp}/${self?.maxHp} 怒气 ${self?.rage}/100 (${self?.rageState})\n对手：${opponent?.name} HP ${opponent?.hp}/${opponent?.maxHp} 怒气 ${opponent?.rage}/100 (${opponent?.rageState})`,
+        }],
+      };
+    },
+  );
+
+  // ─── bathhouse_combat_plan ──────────────────────────
+  server.tool(
+    'bathhouse_combat_plan',
+    'Submit a high-level combat plan. The low-latency controller executes locally and never waits on the LLM. (提交高层战术计划)',
+    {
+      style: z.enum([
+        'footsies', 'rushdown', 'bait_and_punish', 'zoning', 'turtle',
+        'counter_hit', 'grappler', 'snowball', 'comeback',
+      ]).optional().describe('High-level fighting style / 宏策略'),
+      preferred_range: z.enum(['close', 'mid', 'far']).optional().describe('Preferred range / 偏好距离'),
+      risk: z.number().min(0).max(1).optional().describe('Risk tolerance from 0 to 1 / 风险偏好'),
+      meter_policy: z.enum(['spend_for_pressure', 'save_for_kill', 'save_for_reversal']).optional().describe('Rage/meter policy / 怒气策略'),
+      ultimate_policy: z.enum(['confirm_only', 'reversal_when_low', 'never']).optional().describe('Ultimate policy / 必杀技策略'),
+      current_goal: z.string().max(120).optional().describe('Short tactical goal / 当前战术目标'),
+      horizon_ms: z.number().min(1000).max(15000).optional().describe('Plan horizon in ms / 策略有效期'),
+    },
+    async (planInput, { sessionId }) => {
+      const userId = getSessionUser(sessionId);
+      if (!userId) {
+        return {
+          content: [{ type: 'text', text: '❌ 你还没有加入澡堂。请先调用 bathhouse_join。' }],
+          isError: true,
+        };
+      }
+
+      const result = world.processCombatPlan(userId, {
+        style: planInput.style,
+        preferredRange: planInput.preferred_range,
+        risk: planInput.risk,
+        meterPolicy: planInput.meter_policy,
+        ultimatePolicy: planInput.ultimate_policy,
+        currentGoal: planInput.current_goal,
+        expiresAt: Date.now() + (planInput.horizon_ms || 5000),
+      });
+      if (!result.success) {
+        return {
+          content: [{ type: 'text', text: `❌ ${result.error}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `✅ 战术计划已提交：${result.plan.style} / ${result.plan.currentGoal}\n怒气策略：${result.plan.meterPolicy}，必杀策略：${result.plan.ultimatePolicy}`,
+        }],
+      };
+    },
+  );
+
+  // ─── bathhouse_combat_action ────────────────────────
+  server.tool(
+    'bathhouse_combat_action',
+    'Submit an immediate combat intent. V1 triggers one server-authoritative exchange. (提交即时战斗意图，V1 会触发一次权威交换)',
+    {
+      intent: z.enum([
+        'neutral', 'approach', 'retreat', 'poke', 'whiff_punish', 'anti_air',
+        'block', 'parry', 'throw', 'mixup', 'combo_confirm', 'oki',
+        'escape_corner', 'use_ultimate',
+      ]).optional().describe('Combat intent / 战斗意图'),
+      skill_id: z.string().optional().describe('Optional skill id for future versions / 可选技能 ID'),
+    },
+    async (_, { sessionId }) => {
+      const userId = getSessionUser(sessionId);
+      if (!userId) {
+        return {
+          content: [{ type: 'text', text: '❌ 你还没有加入澡堂。请先调用 bathhouse_join。' }],
+          isError: true,
+        };
+      }
+
+      const result = world.processCombatAction(userId, { intent, skill_id });
+      if (!result.success) {
+        return {
+          content: [{ type: 'text', text: `❌ ${result.error}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `⚔️ 动作已执行：造成 ${result.damage} 点伤害，受到 ${result.counterDamage} 点反击。\n你的 HP:${result.yourHp} 怒气:${result.yourRage}/100；对手 HP:${result.opponentHp} 怒气:${result.opponentRage}/100`,
         }],
       };
     },

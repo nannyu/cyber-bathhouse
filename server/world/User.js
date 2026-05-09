@@ -44,6 +44,8 @@ export class User {
 
     // HP
     this.hp = CONFIG.FIGHT.MAX_HP;
+    this.rage = 0;
+    this.rageState = 'charging';
 
     // 角色配色（随机分配）
     this.palette = CONFIG.CHARACTER_PALETTES[
@@ -234,6 +236,8 @@ export class User {
       targetY: Math.round(this.targetY),
       state: this.state,
       hp: this.hp,
+      rage: this.rage,
+      rageState: this.rageState,
       palette: this.palette,
       pet: this.pet ? this.pet.toJSON() : null,
       bubble: this._bubbleText,
@@ -252,6 +256,8 @@ export class User {
       type: this.type,
       state: this.state,
       hp: this.hp,
+      rage: this.rage,
+      rageState: this.rageState,
     };
   }
 }

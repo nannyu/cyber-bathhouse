@@ -153,6 +153,8 @@ export class Connection {
     this.socket.on('user:left', (data) => this._emit('user:left', data));
     this.socket.on('fight:started', (data) => this._emit('fight:started', data));
     this.socket.on('fight:hit', (data) => this._emit('fight:hit', data));
+    this.socket.on('fight:event', (data) => this._emit('fight:event', data));
+    this.socket.on('fight:snapshot', (data) => this._emit('fight:snapshot', data));
     this.socket.on('fight:ended', (data) => this._emit('fight:ended', data));
   }
 
@@ -253,6 +255,61 @@ export class Connection {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '获取战斗台词失败');
     return data.lines || {};
+  }
+
+  async getCombatState() {
+    const res = await fetch('/api/combat/state', {
+      headers: { 'Authorization': `Bearer ${this.token}` },
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '获取战斗状态失败');
+    return data;
+  }
+
+  async submitCombatPlan(plan) {
+    const res = await fetch('/api/combat/plan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify(plan || {}),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '提交战术失败');
+    return data.plan;
+  }
+
+  async submitCombatAction(action = {}) {
+    const res = await fetch('/api/combat/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify(action),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '提交动作失败');
+    return data;
+  }
+
+  async getCombatMatch(matchId) {
+    const res = await fetch(`/api/combat/matches/${encodeURIComponent(matchId)}`, {
+      headers: { 'Authorization': `Bearer ${this.token}` },
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '获取战斗记录失败');
+    return data.match;
+  }
+
+  async getCombatReplay(matchId, limit = 500) {
+    const res = await fetch(`/api/combat/matches/${encodeURIComponent(matchId)}/replay?limit=${limit}`, {
+      headers: { 'Authorization': `Bearer ${this.token}` },
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '获取战斗回放失败');
+    return data;
   }
 
   async updatePetSettings(petId, petNickname, chatVisibility) {

@@ -303,6 +303,131 @@ export class World {
   }
 
   /**
+   * 处理手动攻击（旧接口兼容层）
+   * @param {string} userId
+   */
+  processAttack(userId) {
+    const user = this.users.get(userId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+    if (!user.fightId) return { success: false, error: '不在战斗中', code: 'NOT_FIGHTING' };
+
+    const result = this.fightManager.attackByUser(userId, this.users);
+    if (!result) return { success: false, error: '战斗不存在', code: 'NOT_FIGHTING' };
+
+    for (const event of result.events || []) {
+      this._broadcast('fight:event', event);
+      this.database.recordFightEvent(event);
+    }
+
+    const response = {
+      success: true,
+      fightId: result.fightId,
+      damage: result.attackerDamage,
+      counterDamage: result.counterDamage,
+      yourHp: result.attackerHp,
+      yourRage: result.attackerRage,
+      opponentHp: result.defenderHp,
+      opponentRage: result.defenderRage,
+      opponentName: result.defenderName,
+      attackerSkillId: result.attackerSkillId,
+      defenderSkillId: result.defenderSkillId,
+      finished: result.finished,
+      winnerId: result.winnerId,
+      loserId: result.loserId,
+    };
+
+    if (result.finished) {
+      const wins = (this.leaderboard.get(result.winnerName) || 0) + 1;
+      this.leaderboard.set(result.winnerName, wins);
+      this.database.addWin(result.winnerName);
+      this._recordFightMatch(result);
+      this._broadcast('fight:ended', {
+        fightId: result.fightId,
+        winnerId: result.winnerId,
+        winnerName: result.winnerName,
+        loserName: result.loserName,
+      });
+    } else {
+      this._broadcast('fight:hit', {
+        fightId: result.fightId,
+        attackerName: result.attackerName,
+        defenderName: result.defenderName,
+        attackerDamage: result.attackerDamage,
+        damage: result.attackerDamage,
+        counterDamage: result.counterDamage,
+        attackerHp: result.attackerHp,
+        defenderHp: result.defenderHp,
+        attackerRage: result.attackerRage,
+        defenderRage: result.defenderRage,
+        attackerSkillId: result.attackerSkillId,
+        defenderSkillId: result.defenderSkillId,
+      });
+    }
+
+    return response;
+  }
+
+  /**
+   * 保存 Agent 的高层战术计划。
+   * @param {string} userId
+   * @param {Object} plan
+   */
+  processCombatPlan(userId, plan) {
+    const user = this.users.get(userId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+
+    const savedPlan = this.fightManager.combatEngine.policyManager.setPlan(userId, plan || {});
+    return { success: true, plan: savedPlan };
+  }
+
+  /**
+   * 提交一次即时战斗意图，并立刻推进一次交换。
+   * @param {string} userId
+   * @param {Object} action
+   */
+  processCombatAction(userId, action = {}) {
+    const user = this.users.get(userId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+    if (!user.fightId) return { success: false, error: '不在战斗中', code: 'NOT_FIGHTING' };
+
+    this.fightManager.combatEngine.policyManager.queueIntent(userId, {
+      intent: action.intent,
+      skillId: action.skill_id || action.skillId,
+    });
+    return this.processAttack(userId);
+  }
+
+  /**
+   * 查询战斗结果和回放事件。
+   * @param {string} matchId
+   * @param {number} limit
+   */
+  getCombatReplay(matchId, limit = 500) {
+    const match = this.database.getFightMatch(matchId);
+    if (!match) return { success: false, error: '战斗不存在', code: 'MATCH_NOT_FOUND' };
+    const events = this.database.listFightEvents(matchId, limit);
+    return { success: true, match, events };
+  }
+
+  /**
+   * 获取当前战斗快照。
+   * @param {string} userId
+   */
+  getCombatState(userId) {
+    const user = this.users.get(userId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+    const fight = this.fightManager.getFightByUser(userId);
+    if (!fight) return { success: false, error: '不在战斗中', code: 'NOT_FIGHTING' };
+
+    return {
+      success: true,
+      match: fight.getSnapshot(),
+      selfId: userId,
+      opponentId: fight.getOpponentId(userId),
+    };
+  }
+
+  /**
    * 处理逃跑/取消战斗
    * @param {string} userId
    */
@@ -319,6 +444,8 @@ export class World {
     
     if (winner) {
       winner.hp = CONFIG.FIGHT.MAX_HP;
+      winner.rage = 0;
+      winner.rageState = 'charging';
       winner.fightId = null;
       winner.state = 'idle';
       winner._checkZoneState();
@@ -329,6 +456,8 @@ export class World {
     
     user.fightId = null;
     user.state = 'idle';
+    user.rage = 0;
+    user.rageState = 'charging';
     if (user.id.startsWith('npc_')) {
       user.hp = CONFIG.FIGHT.MAX_HP;
     } else {
@@ -450,32 +579,29 @@ export class World {
       }
     }
 
-    // 自动互相走位
+    // 战斗中的角色由 CombatEngine 控制，主世界只保持 fighting 状态。
     for (const fight of this.fightManager._fights.values()) {
       if (fight.finished) continue;
       const u1 = this.users.get(fight.attackerId);
       const u2 = this.users.get(fight.defenderId);
       if (u1 && u2) {
-        const dx = u2.x - u1.x;
-        const dy = u2.y - u1.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist > 30) {
-          u1.targetX = u2.x; u1.targetY = u2.y;
-          u2.targetX = u1.x; u2.targetY = u1.y;
-          u1.state = 'walking'; u2.state = 'walking';
-        } else {
-          u1.state = 'fighting'; u2.state = 'fighting';
-        }
+        u1.state = 'fighting';
+        u2.state = 'fighting';
       }
     }
 
     // 自动战斗结算
     const fightResults = this.fightManager.tickAutoAttacks(Date.now(), this.users);
     for (const res of fightResults) {
+      for (const event of res.events || []) {
+        this._broadcast('fight:event', event);
+        this.database.recordFightEvent(event);
+      }
       if (res.finished) {
         const wins = (this.leaderboard.get(res.winnerName) || 0) + 1;
         this.leaderboard.set(res.winnerName, wins);
         this.database.addWin(res.winnerName);
+        this._recordFightMatch(res);
         this._broadcast('fight:ended', {
           fightId: res.fightId,
           winnerId: res.winnerId,
@@ -487,11 +613,22 @@ export class World {
           fightId: res.fightId,
           attackerName: res.attackerName,
           defenderName: res.defenderName,
+          attackerDamage: res.attackerDamage,
           damage: res.attackerDamage,
           counterDamage: res.counterDamage,
           attackerHp: res.attackerHp,
           defenderHp: res.defenderHp,
+          attackerRage: res.attackerRage,
+          defenderRage: res.defenderRage,
+          attackerSkillId: res.attackerSkillId,
+          defenderSkillId: res.defenderSkillId,
         });
+      }
+    }
+
+    for (const fight of this.fightManager._fights.values()) {
+      if (!fight.finished) {
+        this._broadcast('fight:snapshot', fight.getSnapshot());
       }
     }
   }
@@ -512,6 +649,34 @@ export class World {
       leaderboard: [...this.leaderboard.entries()].map(([name, wins]) => ({name, wins}))
                      .sort((a, b) => b.wins - a.wins).slice(0, 5),
     };
+  }
+
+  _recordFightMatch(result) {
+    if (!result?.finished) return;
+    this.database.recordFightMatch({
+      id: result.fightId,
+      fighterAId: result.attackerId,
+      fighterAName: result.attackerName,
+      fighterBId: result.defenderId,
+      fighterBName: result.defenderName,
+      winnerId: result.winnerId,
+      winnerName: result.winnerName,
+      loserId: result.loserId,
+      loserName: result.loserName,
+      durationMs: result.durationMs || 0,
+      seed: result.seed || 0,
+      summary: {
+        lastAttackerDamage: result.attackerDamage,
+        lastCounterDamage: result.counterDamage,
+        attackerSkillId: result.attackerSkillId,
+        defenderSkillId: result.defenderSkillId,
+        attackerIntent: result.attackerIntent,
+        defenderIntent: result.defenderIntent,
+        eventCount: result.events?.length || 0,
+      },
+      createdAt: Date.now(),
+      finishedAt: Date.now(),
+    });
   }
 
   /**
