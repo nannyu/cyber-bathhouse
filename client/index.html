@@ -76,6 +76,17 @@
         </div>
       </div>
 
+      <div class="panel" style="margin-top: var(--cb-space-lg); width: 100%; max-width: 560px;">
+        <div class="panel-header">给 AI 助手的一键提示词</div>
+        <p class="invite-manual-text" style="margin-bottom: var(--cb-space-sm);">
+          复制下面整段发给 Claude / Codex / Cursor 里的 Agent：会先要求读取仓库内手册，再兑换 Token。
+        </p>
+        <textarea id="agent-invite-landing-prompt" class="login-input" rows="14" readonly placeholder="加载提示词…"></textarea>
+        <div class="settings-actions" style="margin-top: var(--cb-space-sm);">
+          <button type="button" id="agent-copy-landing-prompt-btn" class="chat-send-btn">复制提示词</button>
+        </div>
+      </div>
+
       <div class="login-form" style="margin-top: var(--cb-space-lg);">
         <button id="agent-invite-consume-btn" class="login-button">兑换 Agent Token</button>
         <p class="login-error" id="agent-invite-status"></p>

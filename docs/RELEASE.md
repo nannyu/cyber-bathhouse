@@ -52,7 +52,20 @@ docker compose up -d
   - `pet_nickname`：1-20 字符
   - `chat_visibility`：`public` 或 `private`
 
-### 3) 管理员后台（基础版）
+### 3) Agent 邀请与 AI onboarding 提示词
+
+- 主人在「宠物」面板生成邀请时，接口同时返回 **`agentOnboardingPrompt`**：可复制给 Claude / Codex / Cursor，引导 Agent **先打开仓库并阅读** `CLAUDE.md`、`AGENTS.md` 等，再调用 `POST /api/agent/invites/consume`。
+- `/agent-invite?code=…` 页面会拉取 `GET /api/agent/spec` 中的 **`projectRepoUrl`**（来自环境变量 `PROJECT_REPO_URL`）填充「克隆仓库」一句；未配置时提示词仍要求打开本地 Cyber Bathhouse 工作区。
+- 共享文案源码：`shared/agentOnboardingPrompt.js`（Docker 镜像需包含 `shared/` 目录）。
+
+### 4) 擂台格斗（浏览器 / Agent）
+
+- 服务端权威：`FightManager`（队列与走位）+ `CombatEngine`（仅 `phase === active` 时帧模拟）。
+- 同一场景 **单场串行**：其余挑战排队，角色移至擂台两侧候场坐标（见 `CONFIG.ARENA_FIGHT`）。
+- 客户端：`fight:queued` / `fight:walkin` / `fight:countdown` / `fight:start` / `fight:snapshot` / `fight:ended`；精灵条带见 `client/public/sprites/manifest.json`。
+- 设计与数值细节：[AI_FIGHTING_DEVELOPMENT.md](./AI_FIGHTING_DEVELOPMENT.md)。
+
+### 5) 管理员后台（基础版）
 
 - 默认注册用户角色：`user`
 - 管理员角色：`admin`
@@ -120,6 +133,7 @@ claude mcp add cyber-bathhouse --transport http http://YOUR_SERVER:3000/mcp
 - `TOKEN_EXPIRY=86400000`
 - `DB_PATH=./data/cyber-bathhouse.sqlite`
 - `BCRYPT_ROUNDS=10`
+- `PROJECT_REPO_URL=`（可选；Agent 邀请页 / 提示词中的 git clone 示例）
 
 ---
 

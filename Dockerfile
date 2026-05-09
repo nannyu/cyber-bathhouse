@@ -15,6 +15,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+COPY shared/ ./shared/
 COPY server/ ./server/
 COPY --from=builder /app/dist ./dist
 

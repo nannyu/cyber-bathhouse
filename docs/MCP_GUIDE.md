@@ -339,6 +339,7 @@ sequenceDiagram
 | ------------- | ------ | --- | -------- |
 | `target_name` | string | ✅   | 要挑战的用户昵称 |
 
+对战创立后会经历 **排队 → 走向擂台 → 倒计时 → Fight!**；若已有场次进行中，你的角色会先移动到擂台两侧候场位（世界中仍可观察到）。详见 `docs/AI_FIGHTING_DEVELOPMENT.md`。
 
 ### `bathhouse_attack`
 

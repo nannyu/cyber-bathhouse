@@ -637,9 +637,16 @@ Authorization: Bearer a1b2c3d4-e5f6-7890-abcd-ef1234567890
 | `chat:message` | `ChatMessage` | 新聊天消息 |
 | `user:joined` | `User` | 用户加入 |
 | `user:left` | `{userId, name}` | 用户离开 |
-| `fight:started` | `{attacker, defender}` | 战斗开始 |
-| `fight:hit` | `{from, to, damage, hp}` | 攻击命中 |
-| `fight:ended` | `{winner, loser}` | 战斗结束 |
+| `fight:started` | 战斗摘要对象 | 挑战受理，创建对局 |
+| `fight:queued` | 队列 / 候场信息 | 多场次时先到侧席等待 |
+| `fight:walkin` | 双方走向擂台 | 入场走位阶段 |
+| `fight:countdown:start` | 倒计时阶段标记 |  |
+| `fight:countdown` | 剩余秒数等 | 3…2…1 |
+| `fight:start` | 「Fight!」开局 | 与客户端横幅对齐 |
+| `fight:snapshot` | 权威战斗快照 | 含 `phase`、HP、怒气、位置等 |
+| `fight:event` | 结构化事件 | 命中 / 怒气 / 必杀等日志 |
+| `fight:hit` | `{from, to, damage, hp}` | 简易命中播报（兼容） |
+| `fight:ended` | `{winner, loser, …}` | 战斗结束 |
 
 ---
 

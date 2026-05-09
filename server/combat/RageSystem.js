@@ -69,7 +69,7 @@ export class RageSystem {
       return false;
     }
     fighter.rage = Math.max(0, fighter.rage - cost);
-    fighter.rageState = fighter.rage >= this.config.MAX ? 'ready' : 'spent';
+    fighter.rageState = fighter.rage >= this.config.MAX ? 'ready' : 'charging';
     fighter.comboRageGained = 0;
     if (fighter.rage < this.config.MAX) {
       fighter._ultimateReadyAnnounced = false;

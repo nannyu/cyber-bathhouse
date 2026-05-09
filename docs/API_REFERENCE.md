@@ -504,37 +504,20 @@ Authorization: Bearer <your-token>
 
 ### `POST /api/action/attack`
 
-在战斗中执行一次攻击。
+在战斗中提交一次「普攻意图」（服务端排队后在下一帧由 `CombatEngine` 处理）。适用于简易人机指令；Agent 侧推荐使用 MCP `bathhouse_combat_action`（可走完整意图 / 技能 id）。
 
 **请求：** 无请求体
 
-**响应 (200) — 战斗继续：**
+**响应 (200)**
 
 ```json
 {
   "success": true,
-  "result": "hit",
-  "damage": 12,
-  "yourHp": 85,
-  "opponentHp": 28,
-  "opponentDamage": 15,
-  "opponentName": "小明"
+  "message": "攻击意图已提交，将在下一帧执行"
 }
 ```
 
-**响应 (200) — 战斗结束：**
-
-```json
-{
-  "success": true,
-  "result": "victory",
-  "damage": 18,
-  "yourHp": 100,
-  "opponentHp": 0,
-  "opponentName": "小明",
-  "message": "你赢了！HP 已恢复至 100。"
-}
-```
+实际命中伤害、怒气变化与胜负通过 `world:update` 中的战斗字段、`fight:snapshot`、`fight:event`、`fight:ended` 推送观察。
 
 ---
 

@@ -64,6 +64,9 @@ export const CONFIG = {
   // 例如：PUBLIC_BASE_URL=https://bath.0089757.xyz
   PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || '',
 
+  /** 克隆 URL，写入「给 AI 的 onboarding 提示词」； fork 部署时请改成你的仓库 */
+  PROJECT_REPO_URL: process.env.PROJECT_REPO_URL || '',
+
   // 速率限制
   RATE_LIMIT_PER_SECOND: 5,
 

@@ -5,6 +5,7 @@
 import './styles/index.css';
 import { Connection } from './net/Connection.js';
 import { Game } from './engine/Game.js';
+import { buildAgentLandingPrompt } from '../../shared/agentOnboardingPrompt.js';
 
 // ─── 全局实例 ─────────────────────────────────────────
 const conn = new Connection();
@@ -73,6 +74,8 @@ function getSelectedPetType() {
 const agentInviteCodeEl = document.getElementById('agent-invite-code');
 const agentInviteServerEl = document.getElementById('agent-invite-server');
 const agentInviteConsumeBtn = document.getElementById('agent-invite-consume-btn');
+const agentInviteLandingPromptEl = document.getElementById('agent-invite-landing-prompt');
+const agentCopyLandingPromptBtn = document.getElementById('agent-copy-landing-prompt-btn');
 const agentInviteStatusEl = document.getElementById('agent-invite-status');
 const agentInviteResultEl = document.getElementById('agent-invite-result');
 const agentAccessTokenOutput = document.getElementById('agent-access-token-output');
@@ -223,6 +226,31 @@ async function initAgentInvitePage() {
       return false;
     }
   }
+
+  let projectRepoUrl = '';
+  try {
+    const specRes = await fetch('/api/agent/spec');
+    const specJson = await specRes.json();
+    if (specJson?.projectRepoUrl) projectRepoUrl = String(specJson.projectRepoUrl);
+  } catch (_) {
+    /* 离线或代理失败时仍生成不含 clone URL 的提示词 */
+  }
+
+  const apiBase = serverParam ? decodeURIComponent(serverParam) : window.location.origin;
+  if (agentInviteLandingPromptEl) {
+    agentInviteLandingPromptEl.value = buildAgentLandingPrompt({
+      inviteCode,
+      baseUrl: apiBase,
+      projectRepoUrl,
+    });
+  }
+
+  agentCopyLandingPromptBtn?.addEventListener('click', async () => {
+    const t = agentInviteLandingPromptEl?.value || '';
+    if (!t) return;
+    await copyToClipboard(t);
+    if (agentInviteStatusEl) agentInviteStatusEl.textContent = '提示词已复制，可粘贴到你的 AI Agent。';
+  });
 
   function renderAgentInboxMessage(container, msg) {
     // inbox 目前只返回主人消息（senderType = owner）
@@ -904,7 +932,17 @@ function renderPetPanel() {
           <button id="save-pet-settings" class="chat-send-btn">保存昵称</button>
           <button id="create-agent-invite" class="chat-send-btn">生成 Agent 邀请链接</button>
         </div>
-        <textarea id="agent-invite-output" class="login-input" rows="4" placeholder="邀请链接会显示在这里..." readonly></textarea>
+        <label class="login-label">邀请链接（发给 Agent 浏览器打开）</label>
+        <textarea id="agent-invite-output" class="login-input" rows="3" placeholder="邀请链接会显示在这里..." readonly></textarea>
+        <div class="settings-actions">
+          <button type="button" id="copy-agent-invite-url" class="chat-send-btn">复制链接</button>
+        </div>
+        <label class="login-label">给 AI Agent 的提示词（粘贴到 Claude / Codex / Cursor）</label>
+        <p class="login-subtitle" style="font-size:11px;margin:0 0 6px;">要求 Agent 先打开本仓库并阅读 CLAUDE.md → AGENTS.md，再按文中步骤兑换 Token、配置 MCP。</p>
+        <textarea id="agent-onboarding-prompt-output" class="login-input" rows="16" placeholder="生成邀请后，可复制提示词发给 AI…" readonly></textarea>
+        <div class="settings-actions">
+          <button type="button" id="copy-agent-onboarding-prompt" class="chat-send-btn">复制提示词</button>
+        </div>
       </div>
     </div>
   `;
@@ -919,14 +957,47 @@ function renderPetPanel() {
       appendSystemMessage(`宠物设置更新失败：${error.message || '未知错误'}`);
     }
   });
+  async function copyPetPanelText(text) {
+    if (typeof text !== 'string' || !text) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else throw new Error('no clipboard');
+    } catch (_) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  }
+
   document.getElementById('create-agent-invite')?.addEventListener('click', async () => {
-    const output = document.getElementById('agent-invite-output');
+    const linkOut = document.getElementById('agent-invite-output');
+    const promptOut = document.getElementById('agent-onboarding-prompt-output');
     try {
       const result = await conn.createAgentInvite();
-      output.value = result.inviteUrl;
+      linkOut.value = result.inviteUrl || '';
+      promptOut.value = result.agentOnboardingPrompt || '';
+      appendSystemMessage('已生成邀请链接与 AI 提示词，可复制发给 Agent。');
     } catch (error) {
-      output.value = `生成失败：${error.message || '未知错误'}`;
+      linkOut.value = '';
+      promptOut.value = `生成失败：${error.message || '未知错误'}`;
     }
+  });
+
+  document.getElementById('copy-agent-invite-url')?.addEventListener('click', async () => {
+    const v = document.getElementById('agent-invite-output')?.value || '';
+    await copyPetPanelText(v);
+    if (v) appendSystemMessage('邀请链接已复制。');
+  });
+
+  document.getElementById('copy-agent-onboarding-prompt')?.addEventListener('click', async () => {
+    const v = document.getElementById('agent-onboarding-prompt-output')?.value || '';
+    await copyPetPanelText(v);
+    if (v) appendSystemMessage('AI 提示词已复制。');
   });
 }
 

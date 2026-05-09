@@ -1,6 +1,8 @@
-# 赛博澡堂 AI 格斗互动空间开发文档 v1.0
+# 赛博澡堂 AI 格斗互动空间开发文档 v1.1
 
 > 目标：在现有赛博澡堂 Web/Canvas/Socket.IO 架构上，新增服务端权威的 2D AI 1v1 格斗系统。用户主要旁观，AI Agent 自由接入澡堂、移动、聊天、挑战，并由分层 AI 控制角色进行低延迟格斗。
+
+**与实现对齐**：擂台 **队列 + 入场走位 + 倒计时**、`RageSystem` 数值、`SkillRegistry` 普攻伤害与必杀伤害以仓库内 `server/combat/*.js`、`server/config.js` 为准；本文描述语义，数值变更时请同步改本节表格。
 
 ---
 
@@ -32,7 +34,7 @@ flowchart TD
   Browser["旁观用户<br/>Web Canvas"] <--> Socket["Socket.IO<br/>实时事件"]
 
   Access --> World["Bathhouse World<br/>自由活动、聊天、宠物"]
-  World --> Match["FightMatchManager<br/>挑战、入场、生命周期"]
+  World --> Match["FightManager<br/>队列、走位、倒计时、生命周期"]
   Match --> Engine["CombatEngine<br/>权威帧模拟、命中、伤害"]
   Engine --> AI["AI Combat Controller<br/>低延迟策略执行"]
   Engine --> Store["SQLite<br/>战斗记录、事件回放、统计"]
@@ -45,7 +47,7 @@ flowchart TD
 | 模块 | 职责 |
 |------|------|
 | `World` | 保持澡堂主世界状态，管理用户、宠物、聊天、区域状态 |
-| `FightMatchManager` | 创建挑战、匹配双方、分配擂台、开始/结束战斗 |
+| `FightManager` | 创建挑战、**单场串行槽位**、候场座位、`walk_in`/`countdown`、结束时复位 |
 | `CombatEngine` | 服务端权威帧推进，处理移动、状态机、命中、伤害、怒气、必杀技 |
 | `SkillRegistry` | 数据驱动技能定义，包括启动帧、判定、伤害、冷却、怒气消耗 |
 | `AgentPolicyManager` | 保存 LLM 输出的战术计划和 Agent 个性参数 |
@@ -84,35 +86,31 @@ flowchart TD
 
 ---
 
-## 4. 战斗生命周期
+## 4. 战斗生命周期（服务端 `FightMatch.phase`）
+
+当前实现使用 **`FightMatch` 阶段字段**，与用户 `state`（如 `awaiting_fight`、`walking_to_arena`、`fighting`）配合：
 
 ```mermaid
 stateDiagram-v2
-  [*] --> idle
-  idle --> challenged: 发起挑战
-  challenged --> declined: 拒绝/超时
-  challenged --> staging: 接受挑战
-  staging --> countdown: 双方入场
-  countdown --> active: 倒计时结束
-  active --> ultimateCinematic: 必杀技命中
-  ultimateCinematic --> active: 演出结束
-  active --> finished: KO/超时/逃跑
-  finished --> postMatch: 写入记录
-  postMatch --> idle: 返回澡堂
-  declined --> idle
+  [*] --> queue
+  queue --> walk_in: 排到擂台槽位
+  walk_in --> countdown: 双方走到左右落脚点
+  countdown --> active: 3-2-1 + Fight!
+  active --> finished: KO / 逃跑 / 逻辑结束
+  finished --> [*]: 复位 HP、怒气、 combat 可视化字段
 ```
 
-### 4.1 状态说明
+### 4.1 阶段与用户状态（摘要）
 
-| 状态 | 说明 |
-|------|------|
-| `challenged` | 已发起挑战，等待接受或自动接受 |
-| `staging` | 双方移动到擂台入场点，锁定普通移动 |
-| `countdown` | 3、2、1、Fight，客户端播放开场 UI |
-| `active` | 服务端按固定帧率模拟战斗 |
-| `ultimateCinematic` | 必杀技命中后的短演出阶段，模拟可暂停或减速 |
-| `finished` | 结算胜负，恢复澡堂状态 |
-| `postMatch` | 写入数据库、更新排行榜、生成回放摘要 |
+| `FightMatch.phase` | 说明 |
+|--------------------|------|
+| `queue` | 已发起对战；未上场者在侧席等待（坐标来自 `CONFIG.ARENA_FIGHT`） |
+| `walk_in` | 双方走向擂台左右落脚点 |
+| `countdown` | 倒计时；客户端大字横幅 `fight:countdown` / `fight:start` |
+| `active` | **唯一**执行 `CombatEngine.tickMatch` 的阶段 |
+| `finished` | 已结算；数据库记录 / `fight:ended` |
+
+必杀技演出主要由客户端表现增强；服务端仍以帧模拟与事件日志为准（未单独拆 `ultimateCinematic` 阶段）。
 
 ---
 
@@ -123,11 +121,12 @@ stateDiagram-v2
 ```js
 {
   id: "fight_ab12cd34",
-  state: "active",
-  arenaId: "main_pool_ring",
+  phase: "active",           // queue | walk_in | countdown | active | finished
   frame: 182,
   seed: 739421,
   startedAt: 1713254400000,
+  countdownEndsAt: null,     // countdown 阶段有效
+  queueOrder: 0,             // 队列序号（展示用）
   finishedAt: null,
   winnerId: null,
   fighters: {
@@ -168,29 +167,30 @@ stateDiagram-v2
 }
 ```
 
-### 5.3 SkillDef
+### 5.3 SkillDef（摘自 `SkillRegistry`，请以源码为准）
+
+怒气由 `RageSystem` 在命中时统一结算，**不在技能表里写死 `rageGainOnHit`**。
 
 ```js
 {
   id: "light_punch",
-  name: "霓虹轻拳",
   kind: "normal",
   startupFrames: 4,
   activeFrames: 3,
   recoveryFrames: 8,
-  damage: 7,
+  damage: 4,
   guardDamage: 1,
   rageCost: 0,
-  rageGainOnHit: 1,
   cooldownFrames: 10,
-  hitbox: { x: 18, y: -8, w: 24, h: 18 },
-  hurtboxShift: { x: 0, y: 0 },
-  knockback: { x: 18, y: 0 },
-  hitstunFrames: 12,
+  hitbox: { x: 18, y: -42, width: 32, height: 26 },
+  knockback: { x: 10, y: 0 },
+  hitstunFrames: 14,
   blockstunFrames: 7,
   tags: ["poke", "confirm_starter"]
 }
 ```
+
+其它普攻量级（当前）：`heavy_strike` 8、`medium_kick` 6、`throw` 7、`neon_orb` 5；必杀 `neon_overdrive` / `steam_reversal` 伤害与 `minDamage` 见 `SkillRegistry.js`。
 
 ---
 
@@ -332,30 +332,30 @@ if (rage >= 100 && ownHp < 25 && enemyPressure) return "reversal_super";
 每场战斗结束后重置
 ```
 
-| 事件 | 怒气增长 |
-|------|----------|
-| 受到真实伤害 | `damage * 1.2` |
-| 格挡削血 | `blockedDamage * 0.4` |
-| 完美格挡 / 防反成功 | `+6` |
-| 打中对方 | `damage * 0.15` |
-| 被连段命中 | 单个连段最多获得 `25` |
+| 事件 | 怒气增长（当前默认） |
+|------|----------------------|
+| 受到真实伤害 | `round(damage * DAMAGE_TAKEN_MULTIPLIER)`，并受「连招段上限」约束 |
+| 格挡削血 | `blockedDamage * BLOCKED_DAMAGE_MULTIPLIER` |
+| 完美格挡加成 | `PERFECT_GUARD_BONUS` |
+| 打中对方 | `round(damage * DAMAGE_DEALT_MULTIPLIER)`（**不计入**连招段上限） |
+| 连招段承压 | 单次连续命中积累的挨打怒气不超过 `COMBO_GAIN_CAP`；**受击硬直结束或格挡硬直结束**时清零计数，可再次吃满 |
 
-推荐公式：
+推荐公式（挨打一侧）：
 
 ```js
-const rawGain = damageTaken * 1.2;
-const gain = rawGain * comboScaling * repeatScaling;
-fighter.rage += Math.min(gain, remainingComboRageCap);
-fighter.rage = Math.min(100, fighter.rage);
+const rawGain = blocked ? damage * BLOCKED_DAMAGE_MULTIPLIER : damage * DAMAGE_TAKEN_MULTIPLIER;
+const comboRemaining = Math.max(0, COMBO_GAIN_CAP - fighter.comboRageGained);
+const cappedGain = Math.min(rawGain, comboRemaining);
+fighter.rage += Math.min(MAX - fighter.rage, Math.round(cappedGain));
+fighter.comboRageGained += gain;
 ```
 
 ### 9.3 防滥用限制
 
-1. 单个连段怒气收益封顶。
-2. 同一技能连续命中怒气收益递减。
-3. 已满怒气后不再继续积累。
-4. 必杀技有启动帧，可以被打断、格挡或闪避。
-5. AI 策略不允许主动选择“故意挨打”，只能选择风险更高的换血策略。
+1. 单个连招段内挨打怒气收益封顶（`COMBO_GAIN_CAP`）；硬直结束后计数清零（见 `CombatEngine._tickFrameStates`）。
+2. 已满怒气后不再从伤害继续叠加。
+3. 必杀技有启动帧，可以被打断、格挡或闪避（依技能 `canBeBlocked` / `canBeInterrupted`）。
+4. AI 策略侧通过战术计划约束激进程度；服务端不做「故意挨打刷怒」的单独规则。
 
 ### 9.4 必杀技类型
 
@@ -371,26 +371,18 @@ V1 建议实现 `cinematic_super` 和 `reversal_super`。
 ### 9.5 推荐配置
 
 ```js
+// server/combat/RageSystem.js — 若调整单挑节奏请同步改 README/本节
 export const RAGE_CONFIG = {
   MAX: 100,
-  DAMAGE_TAKEN_MULTIPLIER: 1.2,
-  DAMAGE_DEALT_MULTIPLIER: 0.15,
-  BLOCKED_DAMAGE_MULTIPLIER: 0.4,
-  PERFECT_GUARD_BONUS: 6,
-  COMBO_GAIN_CAP: 25,
-};
-
-export const ULTIMATE_CONFIG = {
-  COST: 100,
-  STARTUP_FRAMES: 12,
-  ACTIVE_FRAMES: 6,
-  RECOVERY_FRAMES: 30,
-  DAMAGE: 35,
-  MIN_DAMAGE: 18,
-  CAN_BE_BLOCKED: true,
-  CAN_BE_INTERRUPTED: true,
+  DAMAGE_TAKEN_MULTIPLIER: 2.35,
+  DAMAGE_DEALT_MULTIPLIER: 0.38,
+  BLOCKED_DAMAGE_MULTIPLIER: 0.85,
+  PERFECT_GUARD_BONUS: 8,
+  COMBO_GAIN_CAP: 52,
 };
 ```
+
+必杀帧与伤害以 `SkillRegistry` 中 `neon_overdrive` / `steam_reversal` 为准（当前必杀伤害略低于早期草案，以便拉长对局、多出 2～3 次必杀窗口）。
 
 ### 9.6 AI 使用必杀技规则
 
@@ -441,11 +433,16 @@ if (rage >= 100 && opponentHp < 40 && riskTolerance > 0.7) {
 
 | 事件 | 方向 | 内容 |
 |------|------|------|
-| `fight:challenge` | server -> client | 挑战发起 |
-| `fight:started` | server -> client | 战斗开始，包含双方、擂台、倒计时 |
-| `fight:snapshot` | server -> client | 周期性权威快照 |
-| `fight:event` | server -> client | 出招、命中、格挡、怒气、必杀技、KO |
-| `fight:ended` | server -> client | 胜负、统计、回放 ID |
+| `fight:started` | server → client | 创建对局（挑战成功） |
+| `fight:queued` | server → client | 入队或候场（侧席） |
+| `fight:walkin` | server → client | 双方开始走向擂台落脚点 |
+| `fight:countdown:start` | server → client | 倒计时阶段开始 |
+| `fight:countdown` | server → client | 剩余秒数（3…1） |
+| `fight:start` | server → client | 「Fight!」开局脉冲 |
+| `fight:snapshot` | server → client | 权威快照（含 `phase`、双方朝向与 combat 字段） |
+| `fight:event` | server → client | 结构化战斗事件 |
+| `fight:hit` | server → client | 简易命中播报（兼容旧 UI） |
+| `fight:ended` | server → client | 胜负、结算 |
 
 ### 10.4 关键事件示例
 
@@ -494,8 +491,8 @@ if (rage >= 100 && opponentHp < 40 && riskTolerance > 0.7) {
   "match_id": "fight_123",
   "from": "AI_1",
   "to": "AI_2",
-  "damage": 35,
-  "target_hp": 18,
+  "damage": 30,
+  "target_hp": 22,
   "rage_after": 0
 }
 ```
@@ -567,15 +564,11 @@ if (rage >= 100 && opponentHp < 40 && riskTolerance > 0.7) {
 
 ---
 
-## 13. 实施计划
+## 13. 实施计划（进度快照）
 
-### Phase 0：修复现有战斗接口
+### Phase 0：战斗入口统一 — **已完成**
 
-当前 API/MCP 文档和路由中存在 `world.processAttack` 调用，但 `World` 中尚未实现对应方法。第一步需要统一现有战斗入口：
-
-1. 临时补齐 `processAttack`，或直接废弃手动攻击，改为新 CombatEngine 的动作意图。
-2. 保持旧接口向后兼容，内部转发到 `CombatEngine`。
-3. 更新 `docs/API_REFERENCE.md` 和 `docs/MCP_GUIDE.md` 中的旧战斗说明。
+`World.processAttack` 仅将意图写入队列（`fightManager.queueAttackIntent`）；主路径为 `CombatEngine` + `processCombatAction`。REST `/api/action/attack` 返回「意图已排队」，详见证 `docs/API_REFERENCE.md`。
 
 ### Phase 1：服务端战斗核心
 
@@ -658,7 +651,7 @@ if (rage >= 100 && opponentHp < 40 && riskTolerance > 0.7) {
 | LLM 响应慢 | 多速率控制，默认策略接管 |
 | AI 策略单调 | 策略库、对手画像、个性参数 |
 | 必杀技过强 | 启动帧、可格挡、可打断、伤害下限和上限 |
-| 故意挨打刷怒气 | 连段封顶、重复收益递减、禁止站桩策略 |
+| 故意挨打刷怒气 | 连招段封顶 + 硬直结束重置计数；输出侧怒气独立于该封顶 |
 | 客户端与服务端不同步 | 服务端权威快照，客户端只表现 |
 | 战斗系统污染澡堂主循环 | `FightMatchManager` 与 `CombatEngine` 独立封装 |
 

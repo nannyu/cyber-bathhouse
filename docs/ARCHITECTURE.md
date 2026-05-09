@@ -126,7 +126,7 @@ class World {
 graph TD
     Start["Tick 开始 (50ms)"] --> UpdateUsers["更新用户位置<br/>移动插值"]
     UpdateUsers --> UpdatePets["更新宠物<br/>跟随主人"]
-    UpdatePets --> UpdateFights["更新战斗<br/>回合判定"]
+    UpdatePets --> UpdateFights["FightManager：擂台排队 / 走位 / 倒计时<br/>CombatEngine.tickMatch（仅 phase=active）"]
     UpdateFights --> UpdateBubbles["更新气泡<br/>淡出/移除"]
     UpdateBubbles --> Broadcast["广播状态快照<br/>→ 所有 WebSocket 客户端"]
     Broadcast --> End["Tick 结束"]
@@ -140,20 +140,22 @@ stateDiagram-v2
     idle --> walking : moveTo(x, y)
     idle --> soaking : enterPool()
     idle --> talking : chat(message)
-    idle --> fighting : fight(target)
+    idle --> awaiting_fight : 发起挑战并入列擂台
 
     walking --> idle : 到达目的地
     walking --> soaking : 走进池子范围
 
     soaking --> idle : leavePool()
     soaking --> talking : chat(message)
-    soaking --> fighting : 被挑战
+    soaking --> awaiting_fight : 被挑战并入列
+
+    awaiting_fight --> walking_to_arena : 轮到本场 — 走向擂台侧席或入场点
+    walking_to_arena --> fighting : 倒计时结束，phase=active
 
     talking --> idle : 气泡消失 (3s)
     talking --> soaking : 在池中说话结束
 
-    fighting --> idle : 战斗结束
-    fighting --> soaking : 在池中战斗结束
+    fighting --> idle : 战斗结束（结算后恢复）
 ```
 
 **User 属性**:
@@ -165,38 +167,40 @@ stateDiagram-v2
 | `type` | 'browser' \| 'agent' | 用户类型 |
 | `x`, `y` | number | 世界坐标 |
 | `targetX`, `targetY` | number | 目标位置（移动中） |
-| `state` | string | 当前状态 |
+| `state` | string | `idle` / `walking` / `soaking` / `fighting` / `awaiting_fight` / `walking_to_arena` / … |
 | `hp` | number | 生命值 (0-100) |
 | `palette` | object | 角色配色 |
 | `pet` | Pet | AI 宠物实例 |
 | `lastActive` | number | 最后活跃时间戳 |
 
-#### FightManager（战斗系统）
+#### FightManager + CombatEngine（擂台格斗）
+
+同一时间 **只允许一场** `phase === active` 的对局；其余挑战进入 `FightMatch.phase = queue`，并把角色挪到擂台两侧候场坐标（`CONFIG.ARENA_FIGHT`）。
 
 ```mermaid
 sequenceDiagram
-    participant A as 攻击者
+    participant A as 挑战方用户
     participant FM as FightManager
-    participant B as 防御者
+    participant CE as CombatEngine
+    participant B as 对手
 
-    A->>FM: startFight(attackerId, defenderId)
-    FM->>FM: 创建 Fight 实例
-    FM->>A: setState('fighting')
-    FM->>B: setState('fighting')
+    A->>FM: startFight(A, B)
+    FM->>FM: 新建 FightMatch（queue）
+    FM->>A: state awaiting_fight（若排队） / walking_to_arena（入场中）
+    FM->>B: 同上
 
-    loop 每 Tick
-        FM->>FM: updateFights(dt)
-        alt 攻击冷却结束
-            FM->>FM: 计算伤害 (5-15)
-            FM->>B: hp -= damage
-            alt B.hp <= 0
-                FM->>FM: endFight(winner=A)
-                FM->>A: setState('idle'), hp恢复
-                FM->>B: setState('idle'), hp恢复
-            end
+    loop 每 Tick（World 20Hz）
+        FM->>FM: 推进 bench / walk_in / countdown
+        alt phase == active
+            FM->>CE: tickMatch(match, users)
+            CE->>CE: 命中、伤害、怒气、擂台左右边界反弹
+            CE-->>FM: 事件日志（hit / rage / ko）
         end
+        FM->>FM: _checkFightEnd → 广播 fight:ended
     end
 ```
+
+**FightMatch 阶段**（`server/combat/FightMatch.js`）：`queue` → `walk_in` → `countdown` → `active` → `finished`。只有 `active` 调用 `CombatEngine`；走位与倒计时由 `FightManager` 驱动并广播 `fight:queued`、`fight:walkin`、`fight:countdown`、`fight:start` 等 Socket 事件。
 
 #### ChatManager（聊天系统）
 
@@ -227,7 +231,9 @@ graph LR
 4. **宠物层** — AI 宠物精灵
 5. **气泡层** — 对话气泡
 6. **UI 层** — 战斗 HP 条、交互菜单、用户类型标签
-7. **特效层** — 蒸汽粒子、霓虹光晕
+7. **特效层** — 蒸汽粒子、霓虹光晕；擂台受击火花 / 轨迹等（`EffectsLayer`）
+
+**精灵资源**：`client/public/sprites/manifest.json` 描述条带尺寸、动画、`nativeFacing`（素材默认朝向不同，`SpriteRenderer` 据此决定是否水平镜像）。
 
 ---
 

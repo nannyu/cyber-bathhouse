@@ -67,7 +67,7 @@ export class CombatEngine {
     this._syncFacingToOpponents(match);
 
     // 2. Fighters that can act choose and execute new actions
-    this._executeActions(match, users);
+    this._executeActions(match, users, events);
 
     // Sprite / hitbox facing after footsies movement (stunned fighters still turn visually)
     this._syncFacingToOpponents(match);
@@ -221,7 +221,7 @@ export class CombatEngine {
     }
   }
 
-  _executeActions(match, users) {
+  _executeActions(match, users, events) {
     for (const fighter of Object.values(match.fighters)) {
       if (!this._canAct(fighter)) continue;
 
@@ -258,7 +258,7 @@ export class CombatEngine {
         fighter.actionState = Math.abs(action.dx) >= 20 ? ACTION_STATES.DASH : ACTION_STATES.WALK;
         fighter.lastIntent = action.dx > 0 ? 'approach' : 'retreat';
       } else if (action.type === 'skill' || action.type === 'defend') {
-        this._startSkillAction(fighter, action, match);
+        this._startSkillAction(fighter, action, match, events);
       } else {
         fighter.actionState = action.type || ACTION_STATES.IDLE;
         fighter.lastIntent = action.type || 'idle';
@@ -281,9 +281,17 @@ export class CombatEngine {
     }
   }
 
-  _startSkillAction(fighter, action, match) {
+  _startSkillAction(fighter, action, match, events) {
     const skill = action.skill;
     if (!skill) return;
+
+    // 必杀起手只发演出事件；怒气在 _resolveHit（判定打到人 / 被防住）时再扣，挥空不消耗
+    if (skill.kind === 'ultimate' && Array.isArray(events)) {
+      events.push(match.recordEvent('ultimate:cast', {
+        fighterId: fighter.userId,
+        ultimateId: skill.id,
+      }));
+    }
 
     fighter.currentAction = {
       type: action.type,
@@ -344,6 +352,22 @@ export class CombatEngine {
   _resolveHit(match, attacker, defender, skill, events) {
     let damage = skill.damage || 0;
     let blocked = false;
+
+    if (skill.kind === 'ultimate' && (skill.rageCost || 0) > 0) {
+      const action = attacker.currentAction;
+      if (action && !action.rageMeterCommitted) {
+        const cost = skill.rageCost ?? this.rageSystem.config.MAX;
+        if (this.rageSystem.spendUltimate(attacker, cost)) {
+          action.rageMeterCommitted = true;
+          events.push(match.recordEvent('rage:spent', {
+            fighterId: attacker.userId,
+            amount: cost,
+            rage: attacker.rage,
+            reason: 'ultimate_connected',
+          }));
+        }
+      }
+    }
 
     // Check if defender is guarding (throws bypass guard)
     const defenderGuarding = defender.currentAction?.type === 'defend'

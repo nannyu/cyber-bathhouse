@@ -6,6 +6,9 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { CONFIG } from '../config.js';
+import {
+  buildAgentOwnerPrompt,
+} from '../../shared/agentOnboardingPrompt.js';
 
 /**
  * 创建 API 路由
@@ -86,6 +89,14 @@ export function createApiRoutes(world, auth) {
         consumeInvite: 'POST /api/agent/invites/consume',
         bearerToken: 'Authorization: Bearer <agent_access_token>',
       },
+      /** 供邀请页生成「读手册」提示词；未配置则为空，提示词仍引导打开本地工作区 */
+      projectRepoUrl: CONFIG.PROJECT_REPO_URL || '',
+      readDocsFirst: [
+        'CLAUDE.md',
+        'AGENTS.md',
+        'docs/MCP_GUIDE.md',
+        'docs/API_REFERENCE.md',
+      ],
       endpoints: [
         { method: 'GET', path: '/api/agent/private-chat/inbox?since=0', desc: '拉取主人私聊消息' },
         { method: 'POST', path: '/api/agent/private-chat/reply', body: { content: 'string' }, desc: '回复主人私聊消息' },
@@ -478,7 +489,23 @@ export function createApiRoutes(world, auth) {
       createdAt: now,
     });
     const inviteUrl = `${baseUrl}/agent-invite?code=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(baseUrl)}`;
-    res.json({ success: true, inviteUrl, expiresAt: now + INVITE_TTL_MS, petCode: pet.petCode });
+    const expiresAt = now + INVITE_TTL_MS;
+    const agentOnboardingPrompt = buildAgentOwnerPrompt({
+      inviteUrl,
+      inviteCode,
+      baseUrl,
+      petCode: pet.petCode,
+      expiresAtMs: expiresAt,
+      projectRepoUrl: CONFIG.PROJECT_REPO_URL || '',
+    });
+    res.json({
+      success: true,
+      inviteUrl,
+      inviteCode,
+      agentOnboardingPrompt,
+      expiresAt,
+      petCode: pet.petCode,
+    });
   });
 
   router.post('/agent/summon', (req, res) => {
