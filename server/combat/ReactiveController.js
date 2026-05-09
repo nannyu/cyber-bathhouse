@@ -23,29 +23,29 @@ export class ReactiveController {
     // Movement intents
     if (intent === 'approach') {
       const distance = Math.abs(opponent.x - fighter.x);
-      const speed = distance > 60 ? 28 : 20;
+      const speed = distance > 60 ? 18 : 12;
       // 接近时带有轻微垂直位移，向对手Y方向靠拢
       const yDiff = opponent.y - fighter.y;
-      const dy = Math.abs(yDiff) > 8 ? Math.sign(yDiff) * Math.min(Math.abs(yDiff) * 0.4, 12) : 0;
+      const dy = Math.abs(yDiff) > 8 ? Math.sign(yDiff) * Math.min(Math.abs(yDiff) * 0.3, 8) : 0;
       return { type: 'move', dx: fighter.facing * speed, dy, skill: null };
     }
 
     if (intent === 'retreat') {
       // 后退时随机加一点垂直闪避
-      const dy = (Math.random() - 0.5) * 14;
-      return { type: 'move', dx: -fighter.facing * 18, dy, skill: null };
+      const dy = (Math.random() - 0.5) * 10;
+      return { type: 'move', dx: -fighter.facing * 12, dy, skill: null };
     }
 
     if (intent === 'feint') {
       const dir = fighter.facing * (Math.random() < 0.5 ? 1 : -1);
       // 假动作带垂直方向晃动
-      const dy = (Math.random() - 0.5) * 16;
-      return { type: 'move', dx: dir * 12, dy, skill: null };
+      const dy = (Math.random() - 0.5) * 10;
+      return { type: 'move', dx: dir * 8, dy, skill: null };
     }
 
     if (intent === 'sidestep') {
       // 纯垂直闪避（新增意图）
-      const dy = (Math.random() < 0.5 ? -1 : 1) * 20;
+      const dy = (Math.random() < 0.5 ? -1 : 1) * 14;
       return { type: 'move', dx: 0, dy, skill: null };
     }
 
@@ -83,10 +83,10 @@ export class ReactiveController {
       const nearLeft = fighter.x < ARENA_LIMITS.minX + 40;
       const nearRight = fighter.x > ARENA_LIMITS.maxX - 40;
       // 逃离角落时也加垂直位移
-      const dy = (Math.random() - 0.5) * 18;
-      if (nearLeft) return { type: 'move', dx: 20, dy, skill: null };
-      if (nearRight) return { type: 'move', dx: -20, dy, skill: null };
-      return { type: 'move', dx: -fighter.facing * 12, dy, skill: null };
+      const dy = (Math.random() - 0.5) * 12;
+      if (nearLeft) return { type: 'move', dx: 14, dy, skill: null };
+      if (nearRight) return { type: 'move', dx: -14, dy, skill: null };
+      return { type: 'move', dx: -fighter.facing * 10, dy, skill: null };
     }
 
     // Resolve skill
@@ -108,12 +108,12 @@ export class ReactiveController {
     if (cooldown > 0) {
       // Skill on cooldown — always move instead of standing still
       const distance = Math.abs(opponent.x - fighter.x);
-      const dy = (Math.random() - 0.5) * 10;
+      const dy = (Math.random() - 0.5) * 6;
       if (distance > 55) {
-        return { type: 'move', dx: fighter.facing * 16, dy, skill: null };
+        return { type: 'move', dx: fighter.facing * 10, dy, skill: null };
       }
       const dir = Math.random() < 0.5 ? 1 : -1;
-      return { type: 'move', dx: dir * 12, dy, skill: null };
+      return { type: 'move', dx: dir * 8, dy, skill: null };
     }
 
     if (skill.rageCost && fighter.rage < skill.rageCost) {
@@ -123,20 +123,20 @@ export class ReactiveController {
     if (skill.kind === 'motion') {
       const motion = skill.motionPath;
       if (motion === 'forward_dash') {
-        return { type: 'move', dx: fighter.facing * 24, dy: 0, skill: null };
+        return { type: 'move', dx: fighter.facing * 16, dy: 0, skill: null };
       }
       if (motion === 'back_step') {
-        const dy = (Math.random() - 0.5) * 12;
-        return { type: 'move', dx: -fighter.facing * 22, dy, skill: null };
+        const dy = (Math.random() - 0.5) * 8;
+        return { type: 'move', dx: -fighter.facing * 14, dy, skill: null };
       }
     }
 
     // Range check: melee / throws only — projectiles zone from distance
     if (skill.kind !== 'projectile' && skill.hitbox && !this._inRange(fighter, opponent, skill)) {
       const distance = Math.abs(opponent.x - fighter.x);
-      const speed = distance > 60 ? 24 : 16;
+      const speed = distance > 60 ? 16 : 10;
       const yDiff = opponent.y - fighter.y;
-      const dy = Math.abs(yDiff) > 8 ? Math.sign(yDiff) * Math.min(Math.abs(yDiff) * 0.3, 10) : 0;
+      const dy = Math.abs(yDiff) > 8 ? Math.sign(yDiff) * Math.min(Math.abs(yDiff) * 0.25, 8) : 0;
       return { type: 'move', dx: fighter.facing * speed, dy, skill: null };
     }
 

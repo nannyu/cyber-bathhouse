@@ -65,7 +65,7 @@ world.getUser('usr_alpha').targetX = 390;
 world.getUser('usr_beta').x = 430;
 world.getUser('usr_beta').targetX = 430;
 let finalResult = null;
-for (let i = 0; i < 120; i += 1) {
+for (let i = 0; i < 300; i += 1) {
   world.tick(50);
   const activeFight = [...world.fightManager._fights.values()][0];
   if (activeFight) {

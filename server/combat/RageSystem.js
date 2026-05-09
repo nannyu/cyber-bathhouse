@@ -77,6 +77,19 @@ export class RageSystem {
     return true;
   }
 
+  /** Partial rage spend (EX / projectiles). Does not require a full bar. */
+  spendSkillRage(fighter, cost) {
+    const c = Math.max(0, Math.round(Number(cost) || 0));
+    if (c <= 0) return true;
+    if (!fighter || fighter.rage < c) return false;
+    fighter.rage = Math.max(0, fighter.rage - c);
+    fighter.rageState = fighter.rage >= this.config.MAX ? 'ready' : 'charging';
+    if (fighter.rage < this.config.MAX) {
+      fighter._ultimateReadyAnnounced = false;
+    }
+    return true;
+  }
+
   resetComboGain(fighter) {
     if (fighter) {
       fighter.comboRageGained = 0;
