@@ -5,3 +5,7 @@ dist/
 .DS_Store
 *.log
 data/
+.vscode/
+Ikemen-GO/
+debug_*.png
+debug_*.jpg
