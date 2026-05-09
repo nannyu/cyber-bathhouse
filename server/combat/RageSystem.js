@@ -4,11 +4,15 @@
 
 export const RAGE_CONFIG = {
   MAX: 100,
-  DAMAGE_TAKEN_MULTIPLIER: 1.2,
-  DAMAGE_DEALT_MULTIPLIER: 0.15,
-  BLOCKED_DAMAGE_MULTIPLIER: 0.4,
-  PERFECT_GUARD_BONUS: 6,
-  COMBO_GAIN_CAP: 25,
+  /** 挨打攒怒 — 略激进，配合较长的对局可以多轮必杀 */
+  DAMAGE_TAKEN_MULTIPLIER: 2.35,
+  /** 造成伤害攒怒 — 主要弥补普攻伤害下调后的反馈 */
+  DAMAGE_DEALT_MULTIPLIER: 0.38,
+  /** 格挡吃到的 chip 也有可观怒气 */
+  BLOCKED_DAMAGE_MULTIPLIER: 0.85,
+  PERFECT_GUARD_BONUS: 8,
+  /** 单次连续承压段的怒气上限；硬直结束会清零计数（见 CombatEngine） */
+  COMBO_GAIN_CAP: 52,
 };
 
 export class RageSystem {

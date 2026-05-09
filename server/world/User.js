@@ -14,6 +14,8 @@ const STATES = {
   FIGHTING: 'fighting',
   SAUNA: 'sauna',
   SCRUBBING: 'scrubbing',
+  AWAITING_FIGHT: 'awaiting_fight',
+  WALKING_TO_ARENA: 'walking_to_arena',
 };
 
 export class User {
@@ -78,6 +80,19 @@ export class User {
 
     // 朝向（战斗中由 CombatEngine 设置）
     this.facing = 1;
+    this.actionState = 'idle';
+    this.currentSkillId = null;
+    this.phase = null;
+    this.phaseFrame = 0;
+    this.vx = 0;
+    this.spriteId = this._pickSpriteId();
+  }
+
+  _pickSpriteId() {
+    const sprites = CONFIG.AVAILABLE_SPRITES || [];
+    if (!Array.isArray(sprites) || sprites.length === 0) return null;
+    const hash = Array.from(this.id || '').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    return sprites[hash % sprites.length];
   }
 
   /**
@@ -103,6 +118,15 @@ export class User {
         const ratio = Math.min(speed / dist, 1);
         this.x += dx * ratio;
         this.y += dy * ratio;
+      }
+
+      // 行走朝向与位移一致（仅靠 moveTo 时算一次会在斜向/插值过程中错位）
+      const rx = this.targetX - this.x;
+      const ry = this.targetY - this.y;
+      if (Math.abs(rx) >= Math.abs(ry)) {
+        if (Math.abs(rx) > 0.5) this.facing = rx > 0 ? 1 : -1;
+      } else if (Math.abs(ry) > 0.5) {
+        this.facing = this.x < CONFIG.WORLD_WIDTH * 0.5 ? 1 : -1;
       }
     }
 
@@ -145,6 +169,10 @@ export class User {
 
     this.targetX = Math.max(0, Math.min(CONFIG.WORLD_WIDTH, x));
     this.targetY = Math.max(0, Math.min(CONFIG.WORLD_HEIGHT, y));
+    const dx = this.targetX - this.x;
+    if (Math.abs(dx) > 1) {
+      this.facing = dx > 0 ? 1 : -1;
+    }
     this.state = STATES.WALKING;
   }
 
@@ -247,6 +275,12 @@ export class User {
       bubbleTimer: this._bubbleTimer,
       fightId: this.fightId,
       facing: this.facing,
+      actionState: this.actionState,
+      currentSkillId: this.currentSkillId,
+      phase: this.phase,
+      phaseFrame: this.phaseFrame,
+      vx: this.vx,
+      spriteId: this.spriteId,
     };
   }
 

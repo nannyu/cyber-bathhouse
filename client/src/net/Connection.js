@@ -156,6 +156,11 @@ export class Connection {
     this.socket.on('fight:event', (data) => this._emit('fight:event', data));
     this.socket.on('fight:snapshot', (data) => this._emit('fight:snapshot', data));
     this.socket.on('fight:ended', (data) => this._emit('fight:ended', data));
+    this.socket.on('fight:queued', (data) => this._emit('fight:queued', data));
+    this.socket.on('fight:walkin', (data) => this._emit('fight:walkin', data));
+    this.socket.on('fight:countdown:start', (data) => this._emit('fight:countdown:start', data));
+    this.socket.on('fight:countdown', (data) => this._emit('fight:countdown', data));
+    this.socket.on('fight:start', (data) => this._emit('fight:start', data));
   }
 
   /**

@@ -3,7 +3,16 @@
  */
 
 import { Bathhouse } from './Bathhouse.js';
-import { drawCharacter, drawPet, drawBubble, drawHPBar, drawNameTag } from './SpriteRenderer.js';
+import {
+  drawCharacter,
+  drawPet,
+  drawBubble,
+  drawHPBar,
+  drawNameTag,
+  KO_DOWN_DURATION_MS,
+} from './SpriteRenderer.js';
+import { EffectsLayer } from './EffectsLayer.js';
+import { getSpriteAtlas } from './SpriteAtlas.js';
 
 const FALLBACK_ATTACK_LINES = [
   '看我猴子偷桃！',
@@ -54,7 +63,10 @@ export class Game {
     this.fightSnapshots = new Map();
     /** @type {{ text: string, life: number, maxLife: number } | null} 必杀技横幅 */
     this.ultimateBanner = null;
+    /** @type {{ label: string, seconds: number, life: number, maxLife: number, big: boolean } | null} 倒计时横幅 */
+    this.countdownBanner = null;
     this.screenShake = 0;
+    this.effectsLayer = new EffectsLayer();
     /** @type {Record<string, {attack: string[], counter: string[]}>} 宠物战斗台词池 */
     this.combatLinePools = {};
 
@@ -72,6 +84,9 @@ export class Game {
     this._frame = 0;
     this._lastTime = 0;
     this._animationId = null;
+    this.spriteAtlas = getSpriteAtlas();
+    this.spriteAtlas.loadManifest();
+    this._preloadedSprites = new Set();
 
     /** @type {Function|null} 点击回调 */
     this.onCanvasClick = null;
@@ -177,6 +192,24 @@ export class Game {
   handleFightSnapshot(data) {
     if (data?.id) {
       this.fightSnapshots.set(data.id, data);
+      // queue/walk_in 时 Match 内 facing 仍是「左 1 右 -1」占位，每帧写入会覆盖走位朝向 → 倒着走
+      const syncFacingFromFight = data.phase === 'countdown' || data.phase === 'active';
+      for (const fighter of data.fighters || []) {
+        const user = this.worldState?.users?.find((u) => u.id === fighter.userId);
+        // 避免战后残留快照写回已离场选手；animKey 否则会一直卡在受击序列
+        if (!user || user.fightId !== data.id) continue;
+        user.actionState = fighter.actionState || user.actionState;
+        user.currentSkillId = fighter.currentSkillId || fighter.currentAction?.skillId || null;
+        user.phase = fighter.phase || fighter.currentAction?.phase || null;
+        user.phaseFrame = fighter.phaseFrame ?? fighter.currentAction?.frame ?? 0;
+        user.vx = fighter.vx || 0;
+        if (syncFacingFromFight && (fighter.facing === 1 || fighter.facing === -1)) {
+          user.facing = fighter.facing;
+        }
+      }
+      for (const p of data.projectiles || []) {
+        this.effectsLayer.addProjectileTrail(p.x, p.y);
+      }
     }
   }
 
@@ -193,7 +226,12 @@ export class Game {
         break;
       case 'ultimate:hit':
         this.addDamageText(payload.targetX || 400, payload.targetY || 260, payload.damage || 0, '#ffe66d');
+        this.effectsLayer.addHitSpark(payload.hitX || payload.targetX || 400, payload.hitY || payload.targetY || 260, 'cinematic');
         this.screenShake = Math.max(this.screenShake, 18);
+        break;
+      case 'skill:hit':
+      case 'projectile:hit':
+        this.effectsLayer.addHitSpark(payload.hitX || payload.x || 400, payload.hitY || payload.y || 260, payload.hitSpark || 'small');
         break;
       case 'ultimate:ready':
         this.ultimateBanner = {
@@ -207,12 +245,41 @@ export class Game {
     }
   }
 
+  showCountdown(label, seconds, big = false) {
+    const isFight = (label || '').toUpperCase().startsWith('FIGHT');
+    this.countdownBanner = {
+      label: label ?? String(seconds),
+      seconds,
+      life: isFight ? 1200 : 950,
+      maxLife: isFight ? 1200 : 950,
+      big: !!big || isFight,
+    };
+  }
+
   handleFightEnded(data) {
+    const users = this.worldState?.users;
+    if (users?.length) {
+      for (const u of users) {
+        const hit =
+          (data.winnerId && u.id === data.winnerId)
+          || (data.loserId && u.id === data.loserId)
+          || (data.winnerName && u.name === data.winnerName)
+          || (data.loserName && u.name === data.loserName);
+        if (!hit) continue;
+        u.actionState = 'idle';
+        u.currentSkillId = null;
+        u.phase = null;
+        u.phaseFrame = 0;
+        u.vx = 0;
+      }
+    }
+    if (data.fightId) this.fightSnapshots.delete(data.fightId);
+
     if (data.winnerName) {
       this.victoryTimers.set(data.winnerName, 3000);
     }
     if (data.loserName) {
-      this.defeatedTimers.set(data.loserName, 3000);
+      this.defeatedTimers.set(data.loserName, KO_DOWN_DURATION_MS);
     }
   }
 
@@ -269,7 +336,14 @@ export class Game {
         this.ultimateBanner = null;
       }
     }
+    if (this.countdownBanner) {
+      this.countdownBanner.life -= dt;
+      if (this.countdownBanner.life <= 0) {
+        this.countdownBanner = null;
+      }
+    }
     this.screenShake = Math.max(0, this.screenShake - dt * 0.04);
+    this.effectsLayer.update(dt);
   }
 
   _render() {
@@ -310,7 +384,37 @@ export class Game {
     // 2. 渲染角色（按 Y 排序实现深度感）
     const sortedUsers = [...(state.users || [])].sort((a, b) => a.y - b.y);
 
+    // 仅在倒计时 / 正式开打时朝向对手。queue、walk_in 时双方常在横向走位，
+    // 若仍按对手方位覆盖 facing，会出现面朝对手却往反方向移动（像倒着走）。
+    const FACING_BY_OPPONENT_PHASES = new Set(['countdown', 'active']);
+    const opponentByUserId = new Map();
+    for (const fight of state.fights || []) {
+      if (!fight || fight.finished) continue;
+      if (!FACING_BY_OPPONENT_PHASES.has(fight.phase)) continue;
+      const aId = fight.attacker?.id;
+      const bId = fight.defender?.id;
+      if (aId && bId) {
+        opponentByUserId.set(aId, bId);
+        opponentByUserId.set(bId, aId);
+      }
+    }
+    const userById = new Map(sortedUsers.map((u) => [u.id, u]));
     for (const user of sortedUsers) {
+      const oppId = opponentByUserId.get(user.id);
+      if (!oppId) continue;
+      const opp = userById.get(oppId);
+      if (!opp) continue;
+      const rdx = (opp.x ?? 0) - (user.x ?? 0);
+      if (Math.abs(rdx) > 0.5) {
+        user.facing = rdx > 0 ? 1 : -1;
+      }
+    }
+
+    for (const user of sortedUsers) {
+      if (user.spriteId && !this._preloadedSprites.has(user.spriteId)) {
+        this._preloadedSprites.add(user.spriteId);
+        this.spriteAtlas.preload(user.spriteId).catch(() => {});
+      }
       // 宠物（在角色下面层）
       if (user.pet) {
         drawPet(ctx, {
@@ -339,11 +443,42 @@ export class Game {
       if (drawState === 'fighting' && isMoving) {
         drawState = 'walking';
       }
+      // 候场 / 走入场地 → 走路或站立动画（不要让 SpriteRenderer 走出招分支）
+      if (drawState === 'walking_to_arena') {
+        drawState = isMoving ? 'walking' : 'idle';
+      } else if (drawState === 'awaiting_fight') {
+        drawState = isMoving ? 'walking' : 'idle';
+      }
 
       // 角色
       let spriteState = drawState;
       if (this.defeatedTimers.has(user.name)) {
         spriteState = 'defeated';
+      }
+
+      const drawFacing = user.facing === -1 ? -1 : 1;
+
+      const inCombatFlow =
+        user.state === 'fighting'
+        || user.state === 'awaiting_fight'
+        || user.state === 'walking_to_arena';
+
+      const isKoRecover = this.defeatedTimers.has(user.name);
+      const koElapsedMs = isKoRecover
+        ? (KO_DOWN_DURATION_MS - (this.defeatedTimers.get(user.name) ?? 0))
+        : undefined;
+
+      let poseActionState = null;
+      let poseSkillId = null;
+      let posePhase = null;
+      let posePhaseFrame = 0;
+      if (isKoRecover) {
+        poseActionState = 'knockdown';
+      } else if (inCombatFlow) {
+        poseActionState = user.actionState;
+        poseSkillId = user.currentSkillId;
+        posePhase = user.phase;
+        posePhaseFrame = user.phaseFrame ?? 0;
       }
 
       drawCharacter(ctx, {
@@ -352,8 +487,18 @@ export class Game {
         palette: user.palette,
         state: spriteState,
         frame: this._frame,
-        direction: user.facing !== undefined ? (user.facing < 0 ? 3 : 1) : 1,
+        direction: drawFacing < 0 ? 3 : 1,
+        actionState: poseActionState,
+        currentSkillId: poseSkillId,
+        phase: posePhase,
+        phaseFrame: posePhaseFrame,
+        knockdownElapsedMs: koElapsedMs,
+        spriteId: user.spriteId,
+        facing: drawFacing,
       });
+      if (inCombatFlow && user.actionState === 'dash') {
+        this.effectsLayer.addAfterImage(user.x + 24, user.y + 32);
+      }
 
       // 名字标签
       drawNameTag(ctx, {
@@ -408,7 +553,9 @@ export class Game {
 
     // 4. 渲染底部的战斗 HUD（最后绘制，确保在最顶层）
     this._renderCombatHud(ctx, state);
+    this.effectsLayer.render(ctx);
     this._renderUltimateBanner(ctx, state.width, state.height);
+    this._renderCountdownBanner(ctx, state.width, state.height);
     // this._renderLeaderboard(ctx, state.width, state.leaderboard); // 已迁移至前端 DOM
 
     ctx.restore();
@@ -516,6 +663,28 @@ export class Game {
     ctx.shadowBlur = 18;
     ctx.fillStyle = '#ffe66d';
     ctx.fillText(this.ultimateBanner.text, worldWidth / 2, worldHeight / 2 - 26);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  _renderCountdownBanner(ctx, worldWidth, worldHeight) {
+    if (!this.countdownBanner) return;
+    const banner = this.countdownBanner;
+    const ratio = Math.max(0, Math.min(1, banner.life / banner.maxLife));
+    const isFight = banner.label?.toUpperCase().startsWith('FIGHT');
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, ratio + 0.15);
+    ctx.fillStyle = isFight ? 'rgba(255, 45, 120, 0.18)' : 'rgba(0, 0, 0, 0.32)';
+    ctx.fillRect(0, 0, worldWidth, worldHeight);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const fontSize = banner.big ? 56 : 64;
+    ctx.font = `${fontSize}px "Press Start 2P", monospace`;
+    ctx.shadowColor = isFight ? '#ffe66d' : '#00f0ff';
+    ctx.shadowBlur = 28;
+    ctx.fillStyle = isFight ? '#ffe66d' : '#fff';
+    ctx.fillText(banner.label, worldWidth / 2, worldHeight / 2);
     ctx.shadowBlur = 0;
     ctx.restore();
   }

@@ -4,6 +4,7 @@ import path from 'path';
 import assert from 'assert/strict';
 import { Database } from '../server/db/Database.js';
 import { World } from '../server/world/World.js';
+import { FIGHT_PHASES } from '../server/combat/FightMatch.js';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cyber-bathhouse-combat-'));
 const db = new Database(path.join(tempDir, 'combat.sqlite'));
@@ -31,6 +32,13 @@ world.processCombatPlan('usr_beta', {
 const start = world.processFight('usr_alpha', 'Beta');
 assert.equal(start.success, true);
 
+// 跳过 staging（walk_in / countdown），直接进入 ACTIVE 进行算法测试
+const _smokeFight = [...world.fightManager._fights.values()][0];
+_smokeFight.setPhase(FIGHT_PHASES.ACTIVE);
+_smokeFight._arenaPositioned = true;
+world.getUser('usr_alpha').state = 'fighting';
+world.getUser('usr_beta').state = 'fighting';
+
 const state = world.getCombatState('usr_alpha');
 assert.equal(state.success, true);
 assert.equal(state.match.fighters.length, 2);
@@ -57,7 +65,7 @@ world.getUser('usr_alpha').targetX = 390;
 world.getUser('usr_beta').x = 430;
 world.getUser('usr_beta').targetX = 430;
 let finalResult = null;
-for (let i = 0; i < 20; i += 1) {
+for (let i = 0; i < 120; i += 1) {
   world.tick(50);
   const activeFight = [...world.fightManager._fights.values()][0];
   if (activeFight) {
@@ -65,26 +73,26 @@ for (let i = 0; i < 20; i += 1) {
     alphaFighter.cooldowns = {};
   }
   finalResult = world.processCombatAction('usr_alpha', {
-    intent: 'poke',
-    skill_id: 'light_punch',
+    intent: 'whiff_punish',
+    skill_id: 'heavy_strike',
   });
-  if (finalResult.finished) break;
+  if (finalResult.finished || world.getUser('usr_alpha')?.lastFightResult?.finished) break;
 }
-
-assert.equal(finalResult.finished, true);
-assert.equal(finalResult.winnerId, 'usr_alpha');
+const settled = finalResult.finished ? finalResult : world.getUser('usr_alpha')?.lastFightResult;
+assert.equal(settled.finished, true);
+assert.equal(settled.winnerId, 'usr_alpha');
 
 const matchCount = db.db.prepare('SELECT COUNT(1) AS count FROM fight_matches').get().count;
 assert.equal(matchCount, 1);
 
-const replay = world.getCombatReplay(finalResult.fightId);
+const replay = world.getCombatReplay(settled.fightId);
 assert.equal(replay.success, true);
 assert.ok(replay.events.length > 0);
 assert.ok(broadcastEvents.some((entry) => entry.event === 'fight:ended'));
 
 console.log(JSON.stringify({
   ok: true,
-  fightId: finalResult.fightId,
-  winnerId: finalResult.winnerId,
+  fightId: settled.fightId,
+  winnerId: settled.winnerId,
   events: replay.events.length,
 }));

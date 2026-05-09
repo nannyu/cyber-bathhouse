@@ -100,6 +100,9 @@ export class World {
    */
   setBroadcast(fn) {
     this._broadcastFn = fn;
+    if (this.fightManager?.setBroadcast) {
+      this.fightManager.setBroadcast(fn);
+    }
   }
 
   /**
@@ -345,13 +348,33 @@ export class World {
   processCombatAction(userId, action = {}) {
     const user = this.users.get(userId);
     if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
-    if (!user.fightId) return { success: false, error: '不在战斗中', code: 'NOT_FIGHTING' };
+    if (!user.fightId) {
+      if (user.lastFightResult?.finished) {
+        return { success: true, ...user.lastFightResult };
+      }
+      return { success: false, error: '不在战斗中', code: 'NOT_FIGHTING' };
+    }
 
     this.fightManager.combatEngine.policyManager.queueIntent(userId, {
       intent: action.intent,
       skillId: action.skill_id || action.skillId,
     });
-    return { success: true, message: '战斗意图已提交，将在下一帧执行' };
+    const fight = this.fightManager.getFightByUser(userId);
+    if (fight) {
+      const queuedEvent = fight.recordEvent('intent:queued', {
+        fighterId: userId,
+        intent: action.intent,
+        skillId: action.skill_id || action.skillId || null,
+      });
+      this.database.recordFightEvent(queuedEvent);
+    }
+    return {
+      success: true,
+      message: '战斗意图已提交，将在下一帧执行',
+      attackerSkillId: action.skill_id || action.skillId || null,
+      yourRage: user.rage || 0,
+      finished: false,
+    };
   }
 
   /**
@@ -405,6 +428,7 @@ export class World {
       winner.rageState = 'charging';
       winner.fightId = null;
       winner.state = 'idle';
+      this.fightManager._resetCombatVisuals(winner);
       winner._checkZoneState();
       const wins = (this.leaderboard.get(winner.name) || 0) + 1;
       this.leaderboard.set(winner.name, wins);
@@ -415,6 +439,7 @@ export class World {
     user.state = 'idle';
     user.rage = 0;
     user.rageState = 'charging';
+    this.fightManager._resetCombatVisuals(user);
     if (user.id.startsWith('npc_')) {
       user.hp = CONFIG.FIGHT.MAX_HP;
     } else {
@@ -427,6 +452,7 @@ export class World {
     this._broadcast('fight:ended', {
       fightId: fight.id,
       winnerId: winner?.id,
+      loserId: user.id,
       winnerName: winner?.name || '未知',
       loserName: user.name,
       flee: true,
@@ -512,11 +538,13 @@ export class World {
       }
     }
 
-    // 搓澡 NPC 逻辑
+    // 搓澡 NPC 逻辑 — 仅当不在战斗/排队/走入场地时跑闲置 AI
     const scrubber = this.getUser('npc_scrubber');
-    if (scrubber) {
-      // 只有在没被战斗卷入时，才执行闲置搓澡工作
-      if (scrubber.state !== 'fighting' && scrubber.state !== 'walking' || scrubber.state === 'walking' && !scrubber.fightId) {
+    if (scrubber && !scrubber.fightId) {
+      const idleAI = scrubber.state !== 'fighting'
+        && scrubber.state !== 'awaiting_fight'
+        && scrubber.state !== 'walking_to_arena';
+      if (idleAI) {
         if (scrubbingUser) {
           scrubber.targetX = scrubbingUser.x - 30; // 走向客人旁边
           scrubber.targetY = scrubbingUser.y;
@@ -536,19 +564,9 @@ export class World {
       }
     }
 
-    // 战斗中的角色由 CombatEngine 控制，主世界只保持 fighting 状态。
-    for (const fight of this.fightManager._fights.values()) {
-      if (fight.finished) continue;
-      const u1 = this.users.get(fight.attackerId);
-      const u2 = this.users.get(fight.defenderId);
-      if (u1 && u2) {
-        u1.state = 'fighting';
-        u2.state = 'fighting';
-      }
-    }
-
-    // 自动战斗结算
-    const fightResults = this.fightManager.tickAutoAttacks(Date.now(), this.users);
+    // 战斗 staging + 自动战斗结算（state 由 FightManager 管控：
+    // awaiting_fight / walking_to_arena / fighting）
+    const fightResults = this.fightManager.tickAutoAttacks(Date.now(), this.users, dt);
     for (const res of fightResults) {
       for (const event of res.events || []) {
         this._broadcast('fight:event', event);
@@ -572,6 +590,7 @@ export class World {
         this._broadcast('fight:ended', {
           fightId: res.fightId,
           winnerId: res.winnerId,
+          loserId: res.loserId,
           winnerName: res.winnerName,
           loserName: res.loserName,
           analysis: summary.analysis,

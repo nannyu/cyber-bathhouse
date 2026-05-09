@@ -13,6 +13,10 @@ export class OpponentProfile {
       heavy_strike: 0,
       medium_kick: 0,
       throw: 0,
+      dash: 0,
+      back_dash: 0,
+      parry: 0,
+      neon_orb: 0,
       move: 0,
       idle: 0,
     };
@@ -80,6 +84,21 @@ export class OpponentProfile {
     return (this.actionCounts.heavy_strike || 0) / this.framesObserved;
   }
 
+  getProjectileSpamRate() {
+    if (this.framesObserved < 5) return 0;
+    return (this.actionCounts.neon_orb || 0) / this.framesObserved;
+  }
+
+  getDashRate() {
+    if (this.framesObserved < 5) return 0;
+    return ((this.actionCounts.dash || 0) + (this.actionCounts.back_dash || 0)) / this.framesObserved;
+  }
+
+  getParryRate() {
+    if (this.framesObserved < 5) return 0;
+    return (this.actionCounts.parry || 0) / this.framesObserved;
+  }
+
   /**
    * Suggest a counter-strategy based on observed behavior.
    * @returns {string|null} style name or null if no strong pattern
@@ -110,6 +129,12 @@ export class OpponentProfile {
     if (this.getThrowRate() > 0.15) {
       return 'bait_and_punish';
     }
+    if (this.getProjectileSpamRate() > 0.15) {
+      return 'rushdown';
+    }
+    if (this.getParryRate() > 0.12) {
+      return 'throw_mixup';
+    }
 
     return null;
   }
@@ -120,6 +145,9 @@ export class OpponentProfile {
       guardRate: this.getGuardRate(),
       attackRate: this.getAttackRate(),
       throwRate: this.getThrowRate(),
+      projectileSpamRate: this.getProjectileSpamRate(),
+      dashRate: this.getDashRate(),
+      parryRate: this.getParryRate(),
       suggestedStyle: this.suggestCounterStyle(),
     };
   }

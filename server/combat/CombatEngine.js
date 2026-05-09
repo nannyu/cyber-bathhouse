@@ -14,11 +14,13 @@ import { AgentPolicyManager } from './AgentPolicyManager.js';
 import { TacticalDirector } from './TacticalDirector.js';
 import { ReactiveController } from './ReactiveController.js';
 import { OpponentProfile } from './OpponentProfile.js';
+import { ACTION_STATES } from './ActionStates.js';
+import { CONFIG } from '../config.js';
 
-const ARENA_LIMITS = { minX: 160, maxX: 600, y: 330 };
+const ARENA_LIMITS = CONFIG.ARENA_FIGHT.combatLimits;
 const SPAWN_POSITIONS = {
-  left: { x: 310, y: ARENA_LIMITS.y },
-  right: { x: 450, y: ARENA_LIMITS.y },
+  left: { x: CONFIG.ARENA_FIGHT.leftSpawn.x, y: CONFIG.ARENA_FIGHT.leftSpawn.y },
+  right: { x: CONFIG.ARENA_FIGHT.rightSpawn.x, y: CONFIG.ARENA_FIGHT.rightSpawn.y },
 };
 
 export class CombatEngine {
@@ -51,16 +53,28 @@ export class CombatEngine {
     // Position fighters in arena on first tick
     this._ensureArenaPositions(match, users);
 
+    const arenaY = ARENA_LIMITS.y;
+    for (const fighter of Object.values(match.fighters)) {
+      fighter.y = arenaY;
+    }
+
     const events = [];
 
     // 1. Advance frame states: cooldowns, stun, guard, skill phases
     this._tickFrameStates(match);
 
+    // Face opponent before choosing movement (uses positions after knockback drift)
+    this._syncFacingToOpponents(match);
+
     // 2. Fighters that can act choose and execute new actions
     this._executeActions(match, users);
 
+    // Sprite / hitbox facing after footsies movement (stunned fighters still turn visually)
+    this._syncFacingToOpponents(match);
+
     // 3. Check hits: active-phase skills vs opponent hurtboxes
     const hitResults = this._checkHits(match, events);
+    this._tickProjectiles(match, events);
 
     // 4. Update opponent behavior profiles
     this._updateProfiles(match);
@@ -108,9 +122,20 @@ export class CombatEngine {
 
   _tickFrameStates(match) {
     for (const fighter of Object.values(match.fighters)) {
+      const prevStun = fighter.stunFrames || 0;
+      const prevGuard = fighter.guardFrames || 0;
+
       // Decrement stun / guard counters
-      fighter.stunFrames = Math.max(0, (fighter.stunFrames || 0) - 1);
-      fighter.guardFrames = Math.max(0, (fighter.guardFrames || 0) - 1);
+      fighter.stunFrames = Math.max(0, prevStun - 1);
+      fighter.guardFrames = Math.max(0, prevGuard - 1);
+
+      // 受击/格挡硬直结束后重置「连招段」怒气上限计数，否则整场只会吃到前几下的挨打怒气
+      if (prevStun > 0 && fighter.stunFrames === 0) {
+        this.rageSystem.resetComboGain(fighter);
+      }
+      if (prevGuard > 0 && fighter.guardFrames === 0) {
+        this.rageSystem.resetComboGain(fighter);
+      }
 
       // Decrement skill cooldowns
       for (const [skillId, frames] of Object.entries(fighter.cooldowns || {})) {
@@ -121,6 +146,9 @@ export class CombatEngine {
       if (fighter.currentAction) {
         const action = fighter.currentAction;
         action.frame += 1;
+        fighter.phase = action.phase;
+        fighter.phaseFrame = action.frame;
+        fighter.currentSkillId = action.skill?.id ?? null;
         const skill = action.skill;
 
         if (action.phase === 'startup') {
@@ -137,15 +165,34 @@ export class CombatEngine {
           if (action.frame >= (skill?.recoveryFrames || 0)) {
             // Action complete
             fighter.currentAction = null;
+            fighter.phase = null;
+            fighter.phaseFrame = 0;
+            fighter.currentSkillId = null;
             if (skill) {
               fighter.cooldowns[skill.id] = skill.cooldownFrames || 0;
             }
+            fighter.actionState = ACTION_STATES.IDLE;
           }
         }
       }
 
+      if (!fighter.currentAction) {
+        fighter.phase = null;
+        fighter.phaseFrame = 0;
+        fighter.currentSkillId = null;
+      }
+
+      if (Math.abs(fighter.vx || 0) > 0.05) {
+        fighter.x += fighter.vx;
+        fighter.vx *= 0.85;
+      } else {
+        fighter.vx = 0;
+      }
+      this._applyArenaBoundsX(fighter);
+
       fighter.stateFrame = (fighter.stateFrame || 0) + 1;
     }
+
   }
 
   _canAct(fighter) {
@@ -161,16 +208,24 @@ export class CombatEngine {
 
   // ─── Action Selection & Execution ─────────────────────────────────
 
+  /** Everyone faces the opponent each frame (not only when _canAct). */
+  _syncFacingToOpponents(match) {
+    const EPS = 0.5;
+    for (const fighter of Object.values(match.fighters)) {
+      const opponent = match.getOpponent(fighter.userId);
+      if (!opponent) continue;
+      const dx = opponent.x - fighter.x;
+      if (dx > EPS) fighter.facing = 1;
+      else if (dx < -EPS) fighter.facing = -1;
+      else fighter.facing = fighter.side === 'left' ? 1 : -1;
+    }
+  }
+
   _executeActions(match, users) {
     for (const fighter of Object.values(match.fighters)) {
       if (!this._canAct(fighter)) continue;
 
       const opponent = match.getOpponent(fighter.userId);
-
-      // Always face the opponent
-      if (opponent) {
-        fighter.facing = opponent.x > fighter.x ? 1 : -1;
-      }
 
       // Apply fighter's personality if no plan exists
       const user = users.get(fighter.userId);
@@ -199,15 +254,18 @@ export class CombatEngine {
             fighter.x = opponent.x + minDist;
           }
         }
-        fighter.x = Math.max(ARENA_LIMITS.minX, Math.min(ARENA_LIMITS.maxX, fighter.x));
-        fighter.actionState = 'walking';
+        this._applyArenaBoundsX(fighter, action.dx);
+        fighter.actionState = Math.abs(action.dx) >= 20 ? ACTION_STATES.DASH : ACTION_STATES.WALK;
         fighter.lastIntent = action.dx > 0 ? 'approach' : 'retreat';
       } else if (action.type === 'skill' || action.type === 'defend') {
         this._startSkillAction(fighter, action, match);
       } else {
-        fighter.actionState = action.type || 'idle';
+        fighter.actionState = action.type || ACTION_STATES.IDLE;
         fighter.lastIntent = action.type || 'idle';
       }
+      fighter.idleFramesCounter = fighter.actionState === ACTION_STATES.IDLE
+        ? (fighter.idleFramesCounter || 0) + 1
+        : 0;
 
       // Record this action in the opponent's profile
       if (opponent) {
@@ -234,8 +292,15 @@ export class CombatEngine {
       frame: 0,
       startedAt: match.frame,
     };
-    fighter.actionState = action.type === 'defend' ? 'guarding' : 'attacking';
+    fighter.actionState = action.type === 'defend' ? ACTION_STATES.GUARD : ACTION_STATES.ATTACK;
     fighter.lastIntent = skill.id;
+    fighter.currentSkillId = skill.id;
+    fighter.phase = 'startup';
+    fighter.phaseFrame = 0;
+
+    if (skill.kind === 'projectile') {
+      this._spawnProjectile(match, fighter, skill);
+    }
   }
 
   // ─── Hit Detection ────────────────────────────────────────────────
@@ -291,6 +356,7 @@ export class CombatEngine {
       damage = Math.max(0, skill.guardDamage || 0);
       defender.hp = Math.max(0, defender.hp - damage);
       defender.guardFrames = skill.blockstunFrames || 7;
+      defender.actionState = ACTION_STATES.BLOCKSTUN;
       blocked = true;
 
       const gained = this.rageSystem.gainFromDamageTaken(defender, damage, { blocked: true });
@@ -316,7 +382,10 @@ export class CombatEngine {
       // Clean hit
       defender.hp = Math.max(0, defender.hp - damage);
       defender.stunFrames = skill.hitstunFrames || 8;
+      defender.actionState = ACTION_STATES.HITSTUN;
       defender.comboCounter = (defender.comboCounter || 0) + 1;
+      defender.vx = (skill.knockback?.x || 10) * (attacker.facing || 1);
+      defender.velocityFrames = skill.hitstunFrames || 8;
 
       // Defender's current action is interrupted
       if (defender.currentAction) {
@@ -335,6 +404,9 @@ export class CombatEngine {
         targetHp: defender.hp,
         targetX: defender.x,
         targetY: defender.y,
+        hitX: Math.round((attacker.x + defender.x) / 2),
+        hitY: Math.round((attacker.y + defender.y) / 2 - 24),
+        hitSpark: skill.hitSpark || 'small',
       }));
 
       if (gainedVictim > 0) {
@@ -449,6 +521,36 @@ export class CombatEngine {
 
   // ─── Positioning ──────────────────────────────────────────────────
 
+  /**
+   * 限制格斗水平位置在擂台内；撞侧绳时给轻微反弹（击退用 vx 反向衰减，走位用 wallWalkKick）。
+   * @param {object} fighter
+   * @param {number|undefined} moveDx — 本帧战术走位位移（sign 与 vx 无关）
+   */
+  _applyArenaBoundsX(fighter, moveDx = undefined) {
+    const minX = ARENA_LIMITS.minX;
+    const maxX = ARENA_LIMITS.maxX;
+    const bounce = CONFIG.ARENA_FIGHT.wallKnockbackBounce ?? 0.42;
+    const walkKick = CONFIG.ARENA_FIGHT.wallWalkKick ?? 3.4;
+
+    if (fighter.x < minX) {
+      fighter.x = minX;
+      if ((fighter.vx ?? 0) < -0.02) {
+        fighter.vx = -fighter.vx * bounce;
+      } else if (moveDx != null && moveDx < 0) {
+        fighter.vx = walkKick;
+      }
+      return;
+    }
+    if (fighter.x > maxX) {
+      fighter.x = maxX;
+      if ((fighter.vx ?? 0) > 0.02) {
+        fighter.vx = -fighter.vx * bounce;
+      } else if (moveDx != null && moveDx > 0) {
+        fighter.vx = -walkKick;
+      }
+    }
+  }
+
   _ensureArenaPositions(match, users) {
     if (match._arenaPositioned) return;
     const left = match.getFighter(match.attackerId);
@@ -474,6 +576,11 @@ export class CombatEngine {
       user.x = fighter.x;
       user.y = fighter.y;
       user.facing = fighter.facing;
+      user.actionState = fighter.actionState;
+      user.currentSkillId = fighter.currentSkillId;
+      user.phase = fighter.phase;
+      user.phaseFrame = fighter.phaseFrame || 0;
+      user.vx = fighter.vx || 0;
     }
   }
 
@@ -578,5 +685,71 @@ export class CombatEngine {
       fighterId: fighter.userId,
       rage: fighter.rage,
     }));
+  }
+
+  _spawnProjectile(match, fighter, skill) {
+    const pDef = skill.projectile;
+    if (!pDef) return;
+    match.projectiles.push({
+      id: `proj_${match.frame}_${fighter.userId}`,
+      ownerId: fighter.userId,
+      skillId: skill.id,
+      x: fighter.x + (fighter.facing >= 0 ? 22 : -22),
+      y: fighter.y + (pDef.yOffset || -44),
+      width: pDef.width || 16,
+      height: pDef.height || 16,
+      speed: pDef.speed || 12,
+      facing: fighter.facing || 1,
+      lifetime: pDef.lifetimeFrames || 40,
+      damage: skill.damage || 0,
+      guardDamage: skill.guardDamage || 0,
+      hitstunFrames: skill.hitstunFrames || 10,
+      blockstunFrames: skill.blockstunFrames || 8,
+      knockbackX: skill.knockback?.x || 12,
+      hitSpark: skill.hitSpark || 'large',
+    });
+  }
+
+  _tickProjectiles(match, events) {
+    if (!Array.isArray(match.projectiles) || match.projectiles.length === 0) return;
+
+    for (let i = match.projectiles.length - 1; i >= 0; i -= 1) {
+      const p = match.projectiles[i];
+      p.x += p.speed * p.facing;
+      p.lifetime -= 1;
+      if (p.lifetime <= 0 || p.x < ARENA_LIMITS.minX - 40 || p.x > ARENA_LIMITS.maxX + 40) {
+        match.projectiles.splice(i, 1);
+        continue;
+      }
+
+      const owner = match.getFighter(p.ownerId);
+      const target = owner ? match.getOpponent(owner.userId) : null;
+      if (!target) continue;
+
+      const projBox = { x: p.x, y: p.y, width: p.width, height: p.height };
+      const hurtbox = this._getWorldHurtbox(target);
+      if (!this._rectsOverlap(projBox, hurtbox)) continue;
+
+      const guarded = target.currentAction?.type === 'defend' && target.currentAction?.phase === 'active';
+      if (guarded) {
+        target.hp = Math.max(0, target.hp - Math.max(0, p.guardDamage));
+        target.guardFrames = p.blockstunFrames;
+        target.actionState = ACTION_STATES.BLOCKSTUN;
+      } else {
+        target.hp = Math.max(0, target.hp - Math.max(0, p.damage));
+        target.stunFrames = p.hitstunFrames;
+        target.actionState = ACTION_STATES.HITSTUN;
+        target.vx = p.knockbackX * p.facing;
+      }
+      events.push(match.recordEvent('projectile:hit', {
+        projectileId: p.id,
+        ownerId: p.ownerId,
+        targetId: target.userId,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+        hitSpark: p.hitSpark,
+      }));
+      match.projectiles.splice(i, 1);
+    }
   }
 }

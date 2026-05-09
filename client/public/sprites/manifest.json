@@ -1,0 +1,60 @@
+{
+  "characters": {
+    "cyber_brawler": {
+      "displayName": "Cyber Brawler",
+      "frameWidth": 96,
+      "frameHeight": 63,
+      "anchor": { "x": 48, "y": 63 },
+      "nativeFacing": "right",
+      "license": "Streets of Fight — Luis Zuno (Ansimuz); see LICENSE.md",
+      "animations": {
+        "idle": { "src": "idle.png", "frames": 4, "fps": 8, "loop": true },
+        "walk": { "src": "walk.png", "frames": 10, "fps": 14, "loop": true },
+        "dash": { "src": "dash.png", "frames": 4, "fps": 24, "loop": true },
+        "back_dash": { "src": "dash.png", "frames": 4, "fps": 24, "loop": true },
+        "light_punch": { "src": "light_punch.png", "frames": 3, "fps": 18, "phaseFrames": [1, 1, 1] },
+        "heavy_strike": { "src": "heavy_strike.png", "frames": 3, "fps": 14, "phaseFrames": [1, 1, 1] },
+        "medium_kick": { "src": "medium_kick.png", "frames": 5, "fps": 16, "phaseFrames": [2, 2, 1] },
+        "throw": { "src": "throw.png", "frames": 5, "fps": 14, "phaseFrames": [2, 2, 1] },
+        "guard": { "src": "guard.png", "frames": 4, "fps": 10, "loop": true },
+        "parry": { "src": "parry.png", "frames": 3, "fps": 16, "phaseFrames": [1, 1, 1] },
+        "neon_orb": { "src": "neon_orb.png", "frames": 3, "fps": 14, "phaseFrames": [1, 1, 1] },
+        "neon_overdrive": { "src": "ultimate.png", "frames": 5, "fps": 14, "phaseFrames": [2, 2, 1] },
+        "steam_reversal": { "src": "parry.png", "frames": 3, "fps": 18, "phaseFrames": [1, 1, 1] },
+        "hitstun": { "src": "hitstun.png", "frames": 2, "fps": 10, "loop": true },
+        "blockstun": { "src": "hitstun.png", "frames": 2, "fps": 10, "loop": true },
+        "knockdown": { "src": "knockdown.png", "frames": 2, "fps": 8 },
+        "attack": { "src": "idle.png", "frames": 4, "fps": 8, "loop": true },
+        "cinematic": { "src": "idle.png", "frames": 4, "fps": 6, "loop": true }
+      }
+    },
+    "neon_punk": {
+      "displayName": "Neon Punk",
+      "frameWidth": 96,
+      "frameHeight": 63,
+      "anchor": { "x": 48, "y": 63 },
+      "nativeFacing": "left",
+      "license": "Streets of Fight (Enemy Punk) — Luis Zuno (Ansimuz); see LICENSE.md",
+      "animations": {
+        "idle": { "src": "idle.png", "frames": 4, "fps": 8, "loop": true },
+        "walk": { "src": "walk.png", "frames": 4, "fps": 12, "loop": true },
+        "dash": { "src": "dash.png", "frames": 4, "fps": 24, "loop": true },
+        "back_dash": { "src": "dash.png", "frames": 4, "fps": 24, "loop": true },
+        "light_punch": { "src": "light_punch.png", "frames": 3, "fps": 18, "phaseFrames": [1, 1, 1] },
+        "heavy_strike": { "src": "heavy_strike.png", "frames": 3, "fps": 14, "phaseFrames": [1, 1, 1] },
+        "medium_kick": { "src": "medium_kick.png", "frames": 3, "fps": 16, "phaseFrames": [1, 1, 1] },
+        "throw": { "src": "throw.png", "frames": 3, "fps": 14, "phaseFrames": [1, 1, 1] },
+        "guard": { "src": "guard.png", "frames": 4, "fps": 10, "loop": true },
+        "parry": { "src": "parry.png", "frames": 3, "fps": 16, "phaseFrames": [1, 1, 1] },
+        "neon_orb": { "src": "neon_orb.png", "frames": 3, "fps": 14, "phaseFrames": [1, 1, 1] },
+        "neon_overdrive": { "src": "ultimate.png", "frames": 3, "fps": 14, "phaseFrames": [1, 1, 1] },
+        "steam_reversal": { "src": "parry.png", "frames": 3, "fps": 18, "phaseFrames": [1, 1, 1] },
+        "hitstun": { "src": "hitstun.png", "frames": 4, "fps": 10, "loop": true },
+        "blockstun": { "src": "hitstun.png", "frames": 4, "fps": 10, "loop": true },
+        "knockdown": { "src": "knockdown.png", "frames": 4, "fps": 8 },
+        "attack": { "src": "idle.png", "frames": 4, "fps": 8, "loop": true },
+        "cinematic": { "src": "idle.png", "frames": 4, "fps": 6, "loop": true }
+      }
+    }
+  }
+}

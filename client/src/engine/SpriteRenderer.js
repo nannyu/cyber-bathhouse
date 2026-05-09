@@ -2,8 +2,14 @@
  * 像素精灵渲染工具
  * 通过代码生成像素角色和宠物（不依赖外部图片）
  */
+import { getSpriteAtlas } from './SpriteAtlas.js';
+import { drawCharacterFromCode } from './SkillPoses.js';
 
 const PIXEL = 4; // 1 逻辑像素 = 4 屏幕像素
+
+/** 战败倒地总时长、首帧过渡 —— 与 Game.handleFightEnded 使用同一数值 */
+export const KO_DOWN_DURATION_MS = 1800;
+export const KO_DOWN_FIRST_FRAME_MS = 260;
 
 /**
  * 绘制像素矩形
@@ -19,6 +25,49 @@ function px(ctx, x, y, w, h, color) {
  * @param {Object} options
  */
 export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
+  const spriteId = arguments[1]?.spriteId;
+  const actionState = arguments[1]?.actionState;
+  const currentSkillId = arguments[1]?.currentSkillId;
+  const phase = arguments[1]?.phase;
+  const phaseFrame = arguments[1]?.phaseFrame || 0;
+  const facing = arguments[1]?.facing ?? (direction === 3 ? -1 : 1);
+  const knockdownElapsedMs = arguments[1]?.knockdownElapsedMs;
+  const atlas = getSpriteAtlas();
+  const animKey = currentSkillId || actionState || (state === 'walking' ? 'walk' : 'idle');
+
+  if (spriteId && atlas.isReady(spriteId)) {
+    const charDef = atlas.manifest?.characters?.[spriteId];
+    const anim = charDef?.animations?.[animKey] || charDef?.animations?.idle;
+    const fps = anim?.fps || 8;
+    const nf = anim?.frames || 1;
+    let frameIdx = phaseFrame > 0 ? Math.floor((phaseFrame * fps) / 20) : (frame % nf);
+    if (animKey === 'knockdown' && knockdownElapsedMs != null) {
+      frameIdx = knockdownElapsedMs < KO_DOWN_FIRST_FRAME_MS ? 0 : nf - 1;
+    }
+    // 不同精灵表的原生朝向不同（brawler→右、punk→左），按 manifest 决定何时镜像。
+    const native = charDef?.nativeFacing === 'left' ? -1 : 1;
+    const flipX = facing !== native;
+    const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, x + 24, y + 32, {
+      flipX,
+    });
+    if (drawn) return;
+  }
+
+  if (state === 'fighting' || actionState || currentSkillId) {
+    drawCharacterFromCode(ctx, {
+      x,
+      y,
+      palette,
+      actionState: actionState || state,
+      currentSkillId,
+      phase,
+      phaseFrame,
+      frame,
+      facing,
+    });
+    return;
+  }
+
   ctx.save();
   ctx.translate(Math.floor(x), Math.floor(y));
 

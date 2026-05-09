@@ -543,6 +543,22 @@ function bindConnectionHandlersOnce() {
     }
   });
 
+  conn.on('fight:queued', (data) => {
+    appendSystemMessage(`⏳ ${data.attacker.name} vs ${data.defender.name} 已排队（第 ${data.queueOrder} 位）`);
+  });
+
+  conn.on('fight:walkin', (data) => {
+    appendSystemMessage(`🚶 ${data.left.name} 与 ${data.right.name} 走向格斗场...`);
+  });
+
+  conn.on('fight:countdown', (data) => {
+    game?.showCountdown(data.label, data.seconds);
+  });
+
+  conn.on('fight:start', () => {
+    game?.showCountdown('FIGHT!', 0, true);
+  });
+
   conn.on('disconnected', () => {
     footerStatus.textContent = '🔴 已断开';
   });

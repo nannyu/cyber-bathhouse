@@ -2,6 +2,9 @@
  * 赛博澡堂 — 服务端配置
  */
 
+/** 底部擂台矩形 — ZONES.ARENA 与 ARENA_FIGHT 行坐标同源 */
+const ARENA_ZONE_RECT = { x: 50, y: 600, width: 900, height: 150 };
+
 export const CONFIG = {
   // 服务器
   PORT: parseInt(process.env.PORT || '3000', 10),
@@ -23,7 +26,8 @@ export const CONFIG = {
     LOUNGE_AREA: { x: 50, y: 250, width: 200, height: 150 },
     SCRUB_AREA: { x: 550, y: 50, width: 200, height: 150 },
     SMALL_POOL: { x: 800, y: 250, width: 150, height: 150 },
-    ARENA: { x: 50, y: 600, width: 900, height: 150 },
+    /** 底部擂台逻辑区（地走、排队与此对齐） */
+    ARENA: { ...ARENA_ZONE_RECT },
   },
   
   // 搓澡床位
@@ -74,6 +78,40 @@ export const CONFIG = {
     MAX_HP: 100,
   },
 
+  // 格斗场：对战行在 ZONES.ARENA 垂直方向居中偏上（擂台心，非底边）
+  ARENA_FIGHT: (() => {
+    const az = ARENA_ZONE_RECT;
+    // 越小越靠屏幕上方；0.28 ≈ 擂台区上中区域（原 0.42 仍偏下）
+    const rowY = Math.round(az.y + az.height * 0.28);
+    const cx = Math.round(az.x + az.width / 2);
+    return {
+      centerX: cx,
+      centerY: rowY,
+      leftSpawn: { x: cx - 80, y: rowY },
+      rightSpawn: { x: cx + 80, y: rowY },
+      combatLimits: { minX: 280, maxX: 720, y: rowY },
+      leftBench: [
+        { x: 120, y: rowY - 38 },
+        { x: 120, y: rowY },
+        { x: 120, y: rowY + 38 },
+      ],
+      rightBench: [
+        { x: 880, y: rowY - 38 },
+        { x: 880, y: rowY },
+        { x: 880, y: rowY + 38 },
+      ],
+      walkSpeed: 220,
+      walkArrivedDist: 6,
+      countdownMs: 3000,
+      fightStartFlashMs: 800,
+      postFightWaitMs: 1500,
+      /** 被击退撞墙：水平速度反向并乘以此系数（轻微反弹） */
+      wallKnockbackBounce: 0.42,
+      /** 走位主动顶墙时给予的反向初速度（像素/帧量级，由衰减吃掉） */
+      wallWalkKick: 3.4,
+    };
+  })(),
+
   // 宠物
   PET_FOLLOW_DISTANCE: 30,
   PET_FOLLOW_SPEED: 100,
@@ -89,6 +127,7 @@ export const CONFIG = {
 
   // 宠物类型
   PET_TYPES: ['cyber_cat', 'mech_dog', 'e_octopus', 'glow_fox', 'mini_dragon', 'rainbow_pony', 'cyber_pig'],
+  AVAILABLE_SPRITES: ['cyber_brawler', 'neon_punk'],
 
   // 出生点范围（池子外）
   SPAWN_AREAS: [

@@ -29,6 +29,11 @@ export class ReactiveController {
       return { type: 'move', dx: -fighter.facing * 18, skill: null };
     }
 
+    if (intent === 'feint') {
+      const dir = fighter.facing * (Math.random() < 0.5 ? 1 : -1);
+      return { type: 'move', dx: dir * 12, skill: null };
+    }
+
     if (intent === 'escape_corner') {
       // Move away from nearest arena edge
       const nearLeft = fighter.x < ARENA_LIMITS.minX + 40;
@@ -55,21 +60,27 @@ export class ReactiveController {
 
     const cooldown = fighter.cooldowns?.[skill.id] || 0;
     if (cooldown > 0) {
-      // Skill on cooldown — move instead of standing still
+      // Skill on cooldown — always move instead of standing still
       const distance = Math.abs(opponent.x - fighter.x);
       if (distance > 55) {
         return { type: 'move', dx: fighter.facing * 16, skill: null };
       }
-      // Even when close, randomly circle around to create movement
-      if (Math.random() < 0.6) {
-        const dir = Math.random() < 0.5 ? 1 : -1;
-        return { type: 'move', dx: dir * 16, skill: null };
-      }
-      return { type: 'idle', skill: null };
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      return { type: 'move', dx: dir * 12, skill: null };
     }
 
     if (skill.rageCost && fighter.rage < skill.rageCost) {
       return { type: 'idle', skill: null };
+    }
+
+    if (skill.kind === 'motion') {
+      const motion = skill.motionPath;
+      if (motion === 'forward_dash') {
+        return { type: 'move', dx: fighter.facing * 24, skill: null };
+      }
+      if (motion === 'back_step') {
+        return { type: 'move', dx: -fighter.facing * 22, skill: null };
+      }
     }
 
     // Range check: can this skill reach the opponent?

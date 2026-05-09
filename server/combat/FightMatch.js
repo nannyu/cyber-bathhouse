@@ -22,18 +22,34 @@ function createFighter(user, side) {
     actionState: 'idle',
     currentSkillId: null,
     stateFrame: 0,
+    velocityFrames: 0,
+    phase: null,
+    phaseFrame: 0,
     stunFrames: 0,
     guardFrames: 0,
     comboCounter: 0,
     comboRageGained: 0,
+    idleFramesCounter: 0,
     cooldowns: {},
     inputQueue: [],
     lastIntent: 'neutral',
   };
 }
 
+/**
+ * Phase machine: queue → walk_in → countdown → active → finished.
+ * 仅 active 阶段会真正跑战斗逻辑；其他阶段由 FightManager 的 staging tick 推进。
+ */
+export const FIGHT_PHASES = Object.freeze({
+  QUEUE: 'queue',
+  WALK_IN: 'walk_in',
+  COUNTDOWN: 'countdown',
+  ACTIVE: 'active',
+  FINISHED: 'finished',
+});
+
 export class FightMatch {
-  constructor(attacker, defender, { arenaId = 'main_pool_ring' } = {}) {
+  constructor(attacker, defender, { arenaId = 'arena_floor', queueOrder = 0 } = {}) {
     this.id = `fight_${uuidv4().slice(0, 8)}`;
     this.state = 'active';
     this.arenaId = arenaId;
@@ -57,7 +73,20 @@ export class FightMatch {
     };
 
     this.eventLog = [];
+    this.projectiles = [];
     this._arenaPositioned = false;
+
+    // Staging
+    this.phase = FIGHT_PHASES.QUEUE;
+    this.phaseStartedAt = Date.now();
+    this.queueOrder = queueOrder;          // 进入队列时的序号（越小越先打）
+    this.countdownEndsAt = null;           // 倒计时结束时间戳
+    this.lastCountdownNumber = null;       // 已广播过的最大倒计时整秒，避免重复发
+  }
+
+  setPhase(phase, now = Date.now()) {
+    this.phase = phase;
+    this.phaseStartedAt = now;
   }
 
   getFighter(userId) {
@@ -105,6 +134,9 @@ export class FightMatch {
     return {
       id: this.id,
       state: this.state,
+      phase: this.phase,
+      queueOrder: this.queueOrder,
+      countdownEndsAt: this.countdownEndsAt,
       arenaId: this.arenaId,
       frame: this.frame,
       seed: this.seed,
@@ -118,6 +150,15 @@ export class FightMatch {
           frame: f.currentAction.frame,
         } : null,
       })),
+      projectiles: this.projectiles.map((p) => ({
+        id: p.id,
+        ownerId: p.ownerId,
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+        width: p.width,
+        height: p.height,
+        facing: p.facing,
+      })),
       winnerId: this.winnerId,
       loserId: this.loserId,
     };
@@ -129,6 +170,9 @@ export class FightMatch {
     return {
       id: this.id,
       state: this.state,
+      phase: this.phase,
+      queueOrder: this.queueOrder,
+      countdownEndsAt: this.countdownEndsAt,
       frame: this.frame,
       attacker: {
         id: this.attackerId,
