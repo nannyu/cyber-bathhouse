@@ -87,7 +87,7 @@ export const CONFIG = {
     HEAL_PER_TICK: 10,        // 每次回血量（很快）
     TICK_INTERVAL: 500,       // 每 0.5 秒回一次血
     PROXIMITY_RANGE: 120,      // 靠近王师傅多少像素可触发搓澡
-    DURATION: 8000,           // 搓澡持续 8 秒
+    DURATION: 15000,           // 搓澡持续 15 秒
   },
 
   // 战斗

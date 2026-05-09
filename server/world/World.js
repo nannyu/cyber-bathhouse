@@ -153,6 +153,34 @@ export class World {
   }
 
   /**
+   * 王师傅巡逻/闲置时的随机台词
+   */
+  _getScrubberIdleLines() {
+    return [
+      '来搓个澡吧，包您舒坦！',
+      '走过路过不要错过，王师傅搓澡，童叟无欺！',
+      '今天生意清淡啊…搓澡巾都凉了。',
+      '这双手可是搓过上万人的。',
+      '哎，年轻人都不爱搓澡了吗？',
+      '我这手艺，祖传三代了。',
+      '搓完澡再泡个温泉，赛过活神仙。',
+      '看你肩膀那么僵，过来搓一搓？',
+      '王师傅在此，谁来挑战我的搓功？',
+      '闲着也是闲着，不如来搓一把。',
+      '搓澡不花钱，回血还特快！',
+      '我这搓澡巾是纳米材质的，高科技！',
+      '赛博时代了，搓澡还得靠手工。',
+      '别光泡着，搓一搓才通透。',
+      '看那边打架的…打完了来我这搓搓。',
+      '今天的水温不错，适合搓完再泡。',
+      '我王师傅搓澡，从不让客人失望。',
+      '哼哼…这搓澡巾该换新的了。',
+      '有没有人要搓背？买一送一…开玩笑的。',
+      '站了一天了，腰有点酸…不过来客人我立马精神！',
+    ];
+  }
+
+  /**
    * 初始化 NPC 们
    */
   initNPCs() {
@@ -743,22 +771,59 @@ export class World {
           && scrubber.state !== 'walking_to_arena';
         if (idleAI) {
           if (scrubbingUser) {
-            scrubber.targetX = scrubbingUser.x - 30; // 走向客人旁边
-            scrubber.targetY = scrubbingUser.y;
-            scrubber.state = 'walking';
+            // 搓澡时沿着客人身体从头到脚来回走动
+            if (!this._scrubberPatrolDir) this._scrubberPatrolDir = 1;
+            if (!this._scrubberPatrolTimer) this._scrubberPatrolTimer = 0;
 
-            // 每 2 秒说一句随机台词
+            const headX = scrubbingUser.x - 15;  // 头部位置
+            const footX = scrubbingUser.x + 15;  // 脚部位置
+            const patrolY = scrubbingUser.y;
+
+            this._scrubberPatrolTimer += dt;
+            // 每 1.5 秒换方向（从头到脚或从脚到头）
+            if (this._scrubberPatrolTimer >= 1500) {
+              this._scrubberPatrolTimer = 0;
+              this._scrubberPatrolDir *= -1;
+            }
+
+            // 目标位置根据方向在头脚之间切换
+            const targetX = this._scrubberPatrolDir > 0 ? footX : headX;
+            scrubber.targetX = targetX;
+            scrubber.targetY = patrolY;
+
+            // 判断是否在客人身旁范围内（开始搓澡动画）
+            const nearUser = Math.abs(scrubber.y - patrolY) < 15 &&
+              scrubber.x >= headX - 10 && scrubber.x <= footX + 10;
+            if (nearUser) {
+              scrubber.state = 'walking'; // 保持走动状态（来回移动）
+              scrubber.actionState = 'npc_scrubbing';
+            } else {
+              scrubber.state = 'walking';
+              scrubber.actionState = 'idle';
+            }
+
+            // 每 2 秒说一句随机台词（单次搓澡不重复）
             if (!this._scrubberTalkTimer) this._scrubberTalkTimer = 0;
+            if (!this._scrubberUsedLines) this._scrubberUsedLines = new Set();
             this._scrubberTalkTimer += dt;
             if (this._scrubberTalkTimer >= 2000) {
               this._scrubberTalkTimer = 0;
               const scrubberLines = this._getScrubberLines();
-              const line = scrubberLines[Math.floor(Math.random() * scrubberLines.length)];
+              // 过滤掉已说过的台词
+              const available = scrubberLines.filter(l => !this._scrubberUsedLines.has(l));
+              // 如果全部说完了，重置（不太可能，78条够15秒用）
+              const pool = available.length > 0 ? available : scrubberLines;
+              const line = pool[Math.floor(Math.random() * pool.length)];
+              this._scrubberUsedLines.add(line);
               scrubber.showBubble(line);
             }
           } else {
-            // 没人搓澡时重置计时器
+            // 没人搓澡时重置计时器和动画
             this._scrubberTalkTimer = 0;
+            this._scrubberUsedLines = null;
+            this._scrubberPatrolDir = 1;
+            this._scrubberPatrolTimer = 0;
+            scrubber.actionState = 'idle';
 
             // 没有人在搓澡时，检查是否有人靠近王师傅（自动招揽）
             const range = CONFIG.SCRUB?.PROXIMITY_RANGE || 120;
@@ -775,7 +840,16 @@ export class World {
               }
             }
             if (nearbyUser && !scrubber._bubbleText && Math.random() < 0.02) {
-              scrubber.showBubble('来搓个澡吧，包您舒坦！');
+              const idleLines = this._getScrubberIdleLines();
+              const line = idleLines[Math.floor(Math.random() * idleLines.length)];
+              scrubber.showBubble(line);
+            }
+
+            // 无人靠近时也偶尔自言自语
+            if (!nearbyUser && !scrubber._bubbleText && Math.random() < 0.005) {
+              const idleLines = this._getScrubberIdleLines();
+              const line = idleLines[Math.floor(Math.random() * idleLines.length)];
+              scrubber.showBubble(line);
             }
 
             // 返回原位

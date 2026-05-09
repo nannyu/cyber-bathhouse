@@ -40,40 +40,46 @@ export function drawCharacter(ctx, { x, y, palette, state, frame, direction }) {
 
   if (spriteId && atlas.isReady(spriteId)) {
     const charDef = atlas.manifest?.characters?.[spriteId];
-    const anim = charDef?.animations?.[animKey] || charDef?.animations?.idle;
-    const fps = anim?.fps || 8;
-    const nf = anim?.frames || 1;
-    let frameIdx = phaseFrame > 0 ? Math.floor((phaseFrame * fps) / 20) : (frame % nf);
-    if (animKey === 'knockdown') {
-      if (knockdownElapsedMs != null) {
-        frameIdx = knockdownElapsedMs < KO_DOWN_FIRST_FRAME_MS ? 0 : nf - 1;
-      } else if (state === 'scrubbing') {
-        // 搓澡时固定使用倒地最后一帧（趴平）
-        frameIdx = nf - 1;
+    // 如果动画不存在于精灵表中且是自定义动画，跳过精灵表走代码路径
+    const hasAnim = charDef?.animations?.[animKey];
+    if (!hasAnim && animKey === 'npc_scrubbing') {
+      // 跳过精灵表，走下面的代码像素动画路径
+    } else {
+      const anim = hasAnim || charDef?.animations?.idle;
+      const fps = anim?.fps || 8;
+      const nf = anim?.frames || 1;
+      let frameIdx = phaseFrame > 0 ? Math.floor((phaseFrame * fps) / 20) : (frame % nf);
+      if (animKey === 'knockdown') {
+        if (knockdownElapsedMs != null) {
+          frameIdx = knockdownElapsedMs < KO_DOWN_FIRST_FRAME_MS ? 0 : nf - 1;
+        } else if (state === 'scrubbing') {
+          // 搓澡时固定使用倒地最后一帧（趴平）
+          frameIdx = nf - 1;
+        }
       }
-    }
-    // 不同精灵表的原生朝向不同（brawler→右、punk→左），按 manifest 决定何时镜像。
-    const native = charDef?.nativeFacing === 'left' ? -1 : 1;
-    const flipX = facing !== native;
+      // 不同精灵表的原生朝向不同（brawler→右、punk→左），按 manifest 决定何时镜像。
+      const native = charDef?.nativeFacing === 'left' ? -1 : 1;
+      const flipX = facing !== native;
 
-    // 搓澡/战败状态：在精灵表绘制前应用变换
-    if (state === 'scrubbing' || state === 'defeated') {
-      ctx.save();
-      ctx.translate(x + 24, y + 32);
-      // 搓澡时轻微抖动
-      if (state === 'scrubbing') {
-        const scrubShake = Math.sin(Date.now() * 0.01) * 1.5;
-        ctx.translate(scrubShake, 0);
+      // 搓澡/战败状态：在精灵表绘制前应用变换
+      if (state === 'scrubbing' || state === 'defeated') {
+        ctx.save();
+        ctx.translate(x + 24, y + 32);
+        // 搓澡时轻微抖动
+        if (state === 'scrubbing') {
+          const scrubShake = Math.sin(Date.now() * 0.01) * 1.5;
+          ctx.translate(scrubShake, 0);
+        }
+        const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, 0, 0, { flipX });
+        ctx.restore();
+        if (drawn) return;
       }
-      const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, 0, 0, { flipX });
-      ctx.restore();
+
+      const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, x + 24, y + 32, {
+        flipX,
+      });
       if (drawn) return;
     }
-
-    const drawn = atlas.drawFrame(ctx, spriteId, animKey, frameIdx, x + 24, y + 32, {
-      flipX,
-    });
-    if (drawn) return;
   }
 
   if (state === 'fighting' || actionState || currentSkillId) {

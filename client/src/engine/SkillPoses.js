@@ -73,6 +73,29 @@ export function drawCharacterFromCode(ctx, opts) {
     px(ctx, 8 + bodyShift, 5, 5, 3, '#00f0ff');
   }
 
+  // 王师傅搓澡动画：手臂前后搓动 + 身体抖动
+  if (actionState === 'npc_scrubbing') {
+    const scrubFrame = Math.floor(Date.now() / 200) % 4; // 5fps 搓动循环
+    const armX = scrubFrame < 2 ? 10 : 8; // 手臂前后位移
+    const armY = scrubFrame % 2 === 0 ? 7 : 8; // 上下微动
+    // 身体抖动
+    const shakeX = Math.sin(Date.now() * 0.015) * 0.4;
+    const shakeY = Math.cos(Date.now() * 0.012) * 0.3;
+    ctx.translate(shakeX * PIXEL, shakeY * PIXEL);
+    // 伸出的搓澡手臂
+    px(ctx, armX, armY, 4, 2, skin);
+    // 搓澡巾（白色毛巾）
+    px(ctx, armX + 2, armY + 1, 3, 1, '#f5f0e0');
+    // 搓出的水花/泡沫
+    if (scrubFrame === 0 || scrubFrame === 2) {
+      px(ctx, armX + 4, armY - 1, 1, 1, '#aee8ff');
+      px(ctx, armX + 3, armY + 2, 1, 1, '#aee8ff');
+    }
+    if (scrubFrame === 1) {
+      px(ctx, armX + 5, armY, 1, 1, '#fff');
+    }
+  }
+
   ctx.restore();
 }
 
