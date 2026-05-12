@@ -366,6 +366,18 @@ export class Database {
     );
     this._ensureColumn('sessions', 'role', "ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
     this._ensureColumn('pets', 'chat_visibility', "ALTER TABLE pets ADD COLUMN chat_visibility TEXT NOT NULL DEFAULT 'public'");
+    this._ensureColumn('pets', 'control_mode', "ALTER TABLE pets ADD COLUMN control_mode TEXT NOT NULL DEFAULT 'follow'");
+    this._ensureColumn('pets', 'heartbeat_enabled', "ALTER TABLE pets ADD COLUMN heartbeat_enabled INTEGER NOT NULL DEFAULT 0");
+    this._ensureColumn('pets', 'heartbeat_frequency', "ALTER TABLE pets ADD COLUMN heartbeat_frequency TEXT NOT NULL DEFAULT 'standard'");
+    this._ensureColumn('pets', 'public_speech_enabled', "ALTER TABLE pets ADD COLUMN public_speech_enabled INTEGER NOT NULL DEFAULT 1");
+    this._ensureColumn('pets', 'last_agent_heartbeat_at', "ALTER TABLE pets ADD COLUMN last_agent_heartbeat_at INTEGER");
+    this._ensureColumn('pets', 'last_agent_action_at', "ALTER TABLE pets ADD COLUMN last_agent_action_at INTEGER");
+    this._ensureColumn('pets', 'last_public_speech_at', "ALTER TABLE pets ADD COLUMN last_public_speech_at INTEGER");
+    this._ensureColumn('agent_bindings', 'last_seen_at', "ALTER TABLE agent_bindings ADD COLUMN last_seen_at INTEGER");
+    this._ensureColumn('agent_bindings', 'client_name', "ALTER TABLE agent_bindings ADD COLUMN client_name TEXT");
+    this._ensureColumn('chat_messages', 'sender_type', "ALTER TABLE chat_messages ADD COLUMN sender_type TEXT NOT NULL DEFAULT 'user'");
+    this._ensureColumn('chat_messages', 'pet_id', "ALTER TABLE chat_messages ADD COLUMN pet_id TEXT");
+    this._ensureColumn('chat_messages', 'owner_user_id', "ALTER TABLE chat_messages ADD COLUMN owner_user_id TEXT");
     this._ensureCoreTables();
   }
 
@@ -530,8 +542,8 @@ export class Database {
     `);
 
     this._insertMessageStmt = this.db.prepare(`
-      INSERT INTO chat_messages (id, user_id, name, message, timestamp)
-      VALUES (@id, @userId, @name, @message, @timestamp)
+      INSERT INTO chat_messages (id, user_id, name, message, timestamp, sender_type, pet_id, owner_user_id)
+      VALUES (@id, @userId, @name, @message, @timestamp, @senderType, @petId, @ownerUserId)
     `);
 
     this._deleteOldMessagesStmt = this.db.prepare(`
@@ -545,7 +557,15 @@ export class Database {
     `);
 
     this._recentMessagesStmt = this.db.prepare(`
-      SELECT id, user_id AS userId, name, message, timestamp
+      SELECT
+        id,
+        user_id AS userId,
+        name,
+        message,
+        timestamp,
+        sender_type AS senderType,
+        pet_id AS petId,
+        owner_user_id AS ownerUserId
       FROM chat_messages
       ORDER BY timestamp DESC
       LIMIT ?
@@ -563,8 +583,34 @@ export class Database {
     `);
 
     this._insertPetStmt = this.db.prepare(`
-      INSERT INTO pets (id, owner_user_id, pet_code, pet_type, pet_nickname, chat_visibility, created_at, updated_at)
-      VALUES (@id, @ownerUserId, @petCode, @petType, @petNickname, @chatVisibility, @createdAt, @updatedAt)
+      INSERT INTO pets (
+        id,
+        owner_user_id,
+        pet_code,
+        pet_type,
+        pet_nickname,
+        chat_visibility,
+        control_mode,
+        heartbeat_enabled,
+        heartbeat_frequency,
+        public_speech_enabled,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        @id,
+        @ownerUserId,
+        @petCode,
+        @petType,
+        @petNickname,
+        @chatVisibility,
+        @controlMode,
+        @heartbeatEnabled,
+        @heartbeatFrequency,
+        @publicSpeechEnabled,
+        @createdAt,
+        @updatedAt
+      )
     `);
 
     this._getPetByOwnerStmt = this.db.prepare(`
@@ -575,6 +621,13 @@ export class Database {
         pet_type AS petType,
         pet_nickname AS petNickname,
         chat_visibility AS chatVisibility,
+        control_mode AS controlMode,
+        heartbeat_enabled AS heartbeatEnabled,
+        heartbeat_frequency AS heartbeatFrequency,
+        public_speech_enabled AS publicSpeechEnabled,
+        last_agent_heartbeat_at AS lastAgentHeartbeatAt,
+        last_agent_action_at AS lastAgentActionAt,
+        last_public_speech_at AS lastPublicSpeechAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM pets
@@ -590,6 +643,13 @@ export class Database {
         pet_type AS petType,
         pet_nickname AS petNickname,
         chat_visibility AS chatVisibility,
+        control_mode AS controlMode,
+        heartbeat_enabled AS heartbeatEnabled,
+        heartbeat_frequency AS heartbeatFrequency,
+        public_speech_enabled AS publicSpeechEnabled,
+        last_agent_heartbeat_at AS lastAgentHeartbeatAt,
+        last_agent_action_at AS lastAgentActionAt,
+        last_public_speech_at AS lastPublicSpeechAt,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM pets
@@ -599,7 +659,35 @@ export class Database {
 
     this._updatePetSettingsStmt = this.db.prepare(`
       UPDATE pets
-      SET pet_nickname = ?, chat_visibility = ?, updated_at = ?
+      SET
+        pet_nickname = @petNickname,
+        chat_visibility = @chatVisibility,
+        control_mode = @controlMode,
+        heartbeat_enabled = @heartbeatEnabled,
+        heartbeat_frequency = @heartbeatFrequency,
+        public_speech_enabled = @publicSpeechEnabled,
+        updated_at = @updatedAt
+      WHERE id = @petId
+    `);
+
+    this._updatePetAgentHeartbeatStmt = this.db.prepare(`
+      UPDATE pets
+      SET last_agent_heartbeat_at = ?, updated_at = ?
+      WHERE id = ?
+    `);
+
+    this._updatePetAgentActionStmt = this.db.prepare(`
+      UPDATE pets
+      SET
+        last_agent_action_at = ?,
+        last_public_speech_at = CASE WHEN ? THEN ? ELSE last_public_speech_at END,
+        updated_at = ?
+      WHERE id = ?
+    `);
+
+    this._updatePetControlModeStmt = this.db.prepare(`
+      UPDATE pets
+      SET control_mode = ?, updated_at = ?
       WHERE id = ?
     `);
 
@@ -643,12 +731,34 @@ export class Database {
     `);
 
     this._insertBindingStmt = this.db.prepare(`
-      INSERT INTO agent_bindings (id, pet_id, owner_user_id, agent_id, status, created_at, updated_at)
-      VALUES (@id, @petId, @ownerUserId, @agentId, @status, @createdAt, @updatedAt)
+      INSERT INTO agent_bindings (
+        id,
+        pet_id,
+        owner_user_id,
+        agent_id,
+        status,
+        last_seen_at,
+        client_name,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        @id,
+        @petId,
+        @ownerUserId,
+        @agentId,
+        @status,
+        @lastSeenAt,
+        @clientName,
+        @createdAt,
+        @updatedAt
+      )
       ON CONFLICT(pet_id) DO UPDATE SET
         owner_user_id = excluded.owner_user_id,
         agent_id = excluded.agent_id,
         status = excluded.status,
+        last_seen_at = excluded.last_seen_at,
+        client_name = excluded.client_name,
         updated_at = excluded.updated_at
     `);
 
@@ -659,11 +769,25 @@ export class Database {
         owner_user_id AS ownerUserId,
         agent_id AS agentId,
         status,
+        last_seen_at AS lastSeenAt,
+        client_name AS clientName,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM agent_bindings
       WHERE pet_id = ?
       LIMIT 1
+    `);
+
+    this._updateBindingHeartbeatStmt = this.db.prepare(`
+      UPDATE agent_bindings
+      SET last_seen_at = ?, updated_at = ?
+      WHERE pet_id = ? AND status = 'active'
+    `);
+
+    this._revokeBindingByPetStmt = this.db.prepare(`
+      UPDATE agent_bindings
+      SET status = 'revoked', updated_at = ?
+      WHERE pet_id = ?
     `);
 
     this._insertInviteStmt = this.db.prepare(`
@@ -950,7 +1074,12 @@ export class Database {
   }
 
   saveMessage(message) {
-    this._insertMessageStmt.run(message);
+    this._insertMessageStmt.run({
+      ...message,
+      senderType: message.senderType || 'user',
+      petId: message.petId || null,
+      ownerUserId: message.ownerUserId || null,
+    });
   }
 
   getRecentMessages(limit) {
@@ -982,6 +1111,10 @@ export class Database {
       petType,
       petNickname,
       chatVisibility: 'public',
+      controlMode: 'follow',
+      heartbeatEnabled: 0,
+      heartbeatFrequency: 'standard',
+      publicSpeechEnabled: 1,
       createdAt: now,
       updatedAt: now,
     });
@@ -996,8 +1129,38 @@ export class Database {
     return this._getPetByIdStmt.get(petId) || null;
   }
 
-  updatePetSettings(petId, petNickname, chatVisibility = 'public') {
-    this._updatePetSettingsStmt.run(petNickname, chatVisibility, Date.now(), petId);
+  updatePetSettings(petId, petNicknameOrPatch, chatVisibility = 'public') {
+    const current = this.getPetById(petId);
+    if (!current) return null;
+    const patch = typeof petNicknameOrPatch === 'object' && petNicknameOrPatch !== null
+      ? petNicknameOrPatch
+      : { petNickname: petNicknameOrPatch, chatVisibility };
+    const next = {
+      petId,
+      petNickname: typeof patch.petNickname === 'string' ? patch.petNickname : current.petNickname,
+      chatVisibility: patch.chatVisibility || current.chatVisibility || 'public',
+      controlMode: patch.controlMode || current.controlMode || 'follow',
+      heartbeatEnabled: patch.heartbeatEnabled === true || patch.heartbeatEnabled === 1 ? 1 : 0,
+      heartbeatFrequency: patch.heartbeatFrequency || current.heartbeatFrequency || 'standard',
+      publicSpeechEnabled: patch.publicSpeechEnabled === false || patch.publicSpeechEnabled === 0 ? 0 : 1,
+      updatedAt: Date.now(),
+    };
+    this._updatePetSettingsStmt.run(next);
+    return this.getPetById(petId);
+  }
+
+  updatePetAgentHeartbeat(petId, now = Date.now()) {
+    this._updatePetAgentHeartbeatStmt.run(now, now, petId);
+    return this.getPetById(petId);
+  }
+
+  updatePetAgentAction(petId, { publicSpeech = false, now = Date.now() } = {}) {
+    this._updatePetAgentActionStmt.run(now, publicSpeech ? 1 : 0, now, now, petId);
+    return this.getPetById(petId);
+  }
+
+  updatePetControlMode(petId, controlMode) {
+    this._updatePetControlModeStmt.run(controlMode, Date.now(), petId);
     return this.getPetById(petId);
   }
 
@@ -1101,11 +1264,28 @@ export class Database {
   }
 
   upsertAgentBinding(binding) {
-    this._insertBindingStmt.run(binding);
+    const now = Date.now();
+    this._insertBindingStmt.run({
+      ...binding,
+      lastSeenAt: binding.lastSeenAt ?? null,
+      clientName: binding.clientName ?? null,
+      createdAt: binding.createdAt || now,
+      updatedAt: binding.updatedAt || now,
+    });
   }
 
   getAgentBindingByPetId(petId) {
     return this._getBindingByPetIdStmt.get(petId) || null;
+  }
+
+  updateAgentBindingHeartbeat(petId, now = Date.now()) {
+    this._updateBindingHeartbeatStmt.run(now, now, petId);
+    return this.getAgentBindingByPetId(petId);
+  }
+
+  revokeAgentBindingForPet(petId) {
+    this._revokeBindingByPetStmt.run(Date.now(), petId);
+    return this.getAgentBindingByPetId(petId);
   }
 
   createAgentInvite(invite) {

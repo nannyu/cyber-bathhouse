@@ -517,7 +517,14 @@ export function createApiRoutes(world, auth) {
    */
   router.patch('/pets/:petId/settings', (req, res) => {
     const { petId } = req.params;
-    const { pet_nickname, chat_visibility } = req.body || {};
+    const {
+      pet_nickname,
+      chat_visibility,
+      control_mode,
+      heartbeat_enabled,
+      heartbeat_frequency,
+      public_speech_enabled,
+    } = req.body || {};
     const petProfile = auth.database.getPetById(petId);
 
     if (!petProfile || petProfile.ownerUserId !== req.userId) {
@@ -542,9 +549,56 @@ export function createApiRoutes(world, auth) {
         code: 'INVALID_CHAT_VISIBILITY',
       });
     }
+    const controlMode = control_mode || petProfile.controlMode || 'follow';
+    if (!['follow', 'stay', 'agent_controlled'].includes(controlMode)) {
+      return res.status(400).json({
+        success: false,
+        error: 'control_mode 必须是 follow、stay 或 agent_controlled',
+        code: 'INVALID_CONTROL_MODE',
+      });
+    }
+    const heartbeatFrequency = heartbeat_frequency || petProfile.heartbeatFrequency || 'standard';
+    if (!['quiet', 'standard', 'active'].includes(heartbeatFrequency)) {
+      return res.status(400).json({
+        success: false,
+        error: 'heartbeat_frequency 必须是 quiet、standard 或 active',
+        code: 'INVALID_HEARTBEAT_FREQUENCY',
+      });
+    }
 
-    const updated = auth.database.updatePetSettings(petId, pet_nickname.trim(), chat_visibility);
+    const updated = auth.database.updatePetSettings(petId, {
+      petNickname: pet_nickname.trim(),
+      chatVisibility: chat_visibility,
+      controlMode,
+      heartbeatEnabled: heartbeat_enabled === true || heartbeat_enabled === 1,
+      heartbeatFrequency,
+      publicSpeechEnabled: public_speech_enabled !== false && public_speech_enabled !== 0,
+    });
+    const user = world.getUser(req.userId);
+    if (user?.pet) world.applyPetProfileToUser(user, updated);
     res.json({ success: true, pet: updated });
+  });
+
+  router.post('/pets/:petId/recall', (req, res) => {
+    const { petId } = req.params;
+    const petProfile = auth.database.getPetById(petId);
+    if (!petProfile || petProfile.ownerUserId !== req.userId) {
+      return res.status(404).json({ success: false, error: '宠物不存在或无权操作', code: 'PET_NOT_FOUND' });
+    }
+    const result = world.processPetRecall(req.userId, { follow: req.body?.follow !== false });
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  router.post('/pets/:petId/disconnect-agent', (req, res) => {
+    const { petId } = req.params;
+    const petProfile = auth.database.getPetById(petId);
+    if (!petProfile || petProfile.ownerUserId !== req.userId) {
+      return res.status(404).json({ success: false, error: '宠物不存在或无权操作', code: 'PET_NOT_FOUND' });
+    }
+    const result = world.processPetDisconnectAgent(req.userId);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
   });
 
   router.post('/agent/invites', (req, res) => {
@@ -566,6 +620,12 @@ export function createApiRoutes(world, auth) {
       createdAt: now,
     });
     const inviteUrl = `${baseUrl}/agent-invite?code=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(baseUrl)}`;
+    const petMcpUrl = `${baseUrl}/mcp/pet?invite=${encodeURIComponent(inviteCode)}`;
+    const mcpCommands = {
+      codex: `codex mcp add cyber-pet --transport http "${petMcpUrl}"`,
+      claude: `claude mcp add cyber-pet --transport http "${petMcpUrl}"`,
+      kimi: `kimi mcp add --transport http cyber-pet "${petMcpUrl}"`,
+    };
     const expiresAt = now + INVITE_TTL_MS;
     const agentOnboardingPrompt = buildAgentOwnerPrompt({
       inviteUrl,
@@ -579,6 +639,8 @@ export function createApiRoutes(world, auth) {
       success: true,
       inviteUrl,
       inviteCode,
+      mcpCommands,
+      petMcpUrl,
       agentOnboardingPrompt,
       expiresAt,
       petCode: pet.petCode,
@@ -700,7 +762,7 @@ export function createApiRoutes(world, auth) {
   // ─── Agent 接入路由（无需普通用户 token）────────────────────
   router.post('/agent/invites/consume', (req, res) => {
     const baseUrl = CONFIG.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
-    const { code, agent_id } = req.body || {};
+    const { code, agent_id, client_name } = req.body || {};
     if (!code) {
       return res.status(400).json({ success: false, error: '缺少 code', code: 'INVALID_PARAMS' });
     }
@@ -728,6 +790,8 @@ export function createApiRoutes(world, auth) {
       ownerUserId: invite.ownerUserId,
       agentId: assignedAgentId,
       status: 'active',
+      clientName: typeof client_name === 'string' ? client_name.trim().slice(0, 80) : null,
+      lastSeenAt: Date.now(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -752,7 +816,18 @@ export function createApiRoutes(world, auth) {
       agent_id: assignedAgentId,
       rest_endpoint: `${baseUrl}/api/agent`,
       mcp_endpoint: `${baseUrl}/mcp`,
-      capabilities: ['private_chat.receive', 'private_chat.reply', 'world.look'],
+      capabilities: [
+        'private_chat.receive',
+        'private_chat.reply',
+        'world.look',
+        'pet.status',
+        'pet.look',
+        'pet.move',
+        'pet.say',
+        'pet.emote',
+        'pet.return',
+        'pet.heartbeat',
+      ],
       pet,
     });
   });
@@ -806,6 +881,48 @@ export function createApiRoutes(world, auth) {
       }
     }
     res.json({ success: true, message, publicDelivered, warning });
+  });
+
+  router.get('/agent/pet/status', agentAuth, (req, res) => {
+    const result = world.processAgentPetStatus(req.agent);
+    if (!result.success) return res.status(result.code === 'AUTH_REQUIRED' ? 401 : 400).json(result);
+    res.json(result);
+  });
+
+  router.get('/agent/pet/look', agentAuth, (req, res) => {
+    const result = world.processAgentPetLook(req.agent);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  router.post('/agent/pet/heartbeat', agentAuth, (req, res) => {
+    const result = world.processAgentPetHeartbeat(req.agent, req.body || {});
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  router.post('/agent/pet/move', agentAuth, (req, res) => {
+    const result = world.processAgentPetMove(req.agent, req.body || {});
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  router.post('/agent/pet/say', agentAuth, (req, res) => {
+    const result = world.processAgentPetSay(req.agent, req.body || {});
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  router.post('/agent/pet/emote', agentAuth, (req, res) => {
+    const result = world.processAgentPetEmote(req.agent, req.body || {});
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
+  });
+
+  router.post('/agent/pet/return', agentAuth, (req, res) => {
+    const result = world.processAgentPetReturn(req.agent);
+    if (!result.success) return res.status(400).json(result);
+    res.json(result);
   });
 
   return router;

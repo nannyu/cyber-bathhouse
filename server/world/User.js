@@ -26,7 +26,7 @@ export class User {
    * @param {string} options.type - 用户类型 (browser | agent)
    * @param {string} [options.petType] - 宠物类型
    */
-  constructor({ id, name, type, petType, coins = 0 }) {
+  constructor({ id, name, type, petType, petProfile = null, coins = 0 }) {
     this.id = id;
     this.name = name;
     this.type = type; // 'browser' | 'agent'
@@ -63,8 +63,10 @@ export class User {
     } else {
       const resolvedPetType = petType && CONFIG.PET_TYPES.includes(petType)
         ? petType
+        : petProfile?.petType && CONFIG.PET_TYPES.includes(petProfile.petType)
+          ? petProfile.petType
         : CONFIG.PET_TYPES[0];
-      this.pet = new Pet(resolvedPetType, this.x, this.y);
+      this.pet = new Pet(resolvedPetType, this.x, this.y, petProfile || {});
     }
 
     // 气泡

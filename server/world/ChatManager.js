@@ -20,13 +20,16 @@ export class ChatManager {
    * @param {string} message - 消息内容
    * @returns {Object} 消息对象
    */
-  addMessage(userId, name, message) {
+  addMessage(userId, name, message, metadata = {}) {
     const msg = {
       id: `msg_${uuidv4().slice(0, 8)}`,
       userId,
       name,
       message: message.slice(0, CONFIG.MESSAGE_MAX_LENGTH),
       timestamp: Date.now(),
+      senderType: metadata.senderType || 'user',
+      petId: metadata.petId || null,
+      ownerUserId: metadata.ownerUserId || null,
     };
 
     this._messages.push(msg);

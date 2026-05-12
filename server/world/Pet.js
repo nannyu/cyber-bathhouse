@@ -170,11 +170,25 @@ export class Pet {
    * @param {number} ownerX - 主人 X 坐标
    * @param {number} ownerY - 主人 Y 坐标
    */
-  constructor(type, ownerX, ownerY) {
+  constructor(type, ownerX, ownerY, profile = {}) {
+    this.id = profile.id || null;
+    this.ownerUserId = profile.ownerUserId || null;
     this.type = type;
+    this.nickname = profile.petNickname || profile.nickname || null;
     this.x = ownerX + 8 + Math.random() * 16;
     this.y = ownerY + 5 + Math.random() * 10;
-    this.state = 'follow'; // follow | stay | trick | greet | cheering
+    this.targetX = this.x;
+    this.targetY = this.y;
+    this.controlMode = profile.controlMode || 'follow'; // follow | stay | agent_controlled
+    this.state = this.controlMode; // follow | stay | agent_controlled | trick | greet | cheering
+    this.heartbeatEnabled = profile.heartbeatEnabled === true || profile.heartbeatEnabled === 1;
+    this.heartbeatFrequency = profile.heartbeatFrequency || 'standard';
+    this.publicSpeechEnabled = profile.publicSpeechEnabled !== false && profile.publicSpeechEnabled !== 0;
+    this.lastAgentHeartbeatAt = profile.lastAgentHeartbeatAt || null;
+    this.lastAgentActionAt = profile.lastAgentActionAt || null;
+    this.lastPublicSpeechAt = profile.lastPublicSpeechAt || null;
+    this._bubbleText = null;
+    this._bubbleTimer = 0;
     this._trickTimer = 0;
     this._greetTimer = 0;
     this._cheerTimer = 0;
@@ -189,11 +203,18 @@ export class Pet {
    * @param {number} ownerY - 主人 Y
    */
   update(dt, ownerX, ownerY) {
+    if (this._bubbleTimer > 0) {
+      this._bubbleTimer -= dt;
+      if (this._bubbleTimer <= 0) {
+        this._bubbleText = null;
+      }
+    }
+
     // 特技计时器
     if (this.state === 'trick') {
       this._trickTimer -= dt;
       if (this._trickTimer <= 0) {
-        this.state = 'follow';
+        this.state = this.controlMode;
       }
       return;
     }
@@ -202,7 +223,7 @@ export class Pet {
     if (this.state === 'greet') {
       this._greetTimer -= dt;
       if (this._greetTimer <= 0) {
-        this.state = 'follow';
+        this.state = this.controlMode;
       }
       return;
     }
@@ -239,10 +260,26 @@ export class Pet {
       return;
     }
 
-    // 跟随主人
-    if (this.state === 'follow') {
+    if (this.controlMode === 'agent_controlled') {
+      this.state = 'agent_controlled';
+      const dx = this.targetX - this.x;
+      const dy = this.targetY - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 2) {
+        const speed = CONFIG.PET_FOLLOW_SPEED * (dt / 1000);
+        const ratio = Math.min(speed / dist, 1);
+        this.x += dx * ratio;
+        this.y += dy * ratio;
+      }
+      return;
+    }
+
+    if (this.controlMode === 'follow') {
+      this.state = 'follow';
       const targetX = ownerX + 12;
       const targetY = ownerY + 8;
+      this.targetX = targetX;
+      this.targetY = targetY;
       const dx = targetX - this.x;
       const dy = targetY - this.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -253,8 +290,43 @@ export class Pet {
         this.x += dx * ratio;
         this.y += dy * ratio;
       }
+      return;
     }
-    // stay 状态：不移动
+    this.state = 'stay';
+  }
+
+  applyProfile(profile = {}) {
+    this.id = profile.id || this.id;
+    this.ownerUserId = profile.ownerUserId || this.ownerUserId;
+    this.type = profile.petType || this.type;
+    this.nickname = profile.petNickname || this.nickname;
+    this.controlMode = profile.controlMode || this.controlMode || 'follow';
+    this.heartbeatEnabled = profile.heartbeatEnabled === true || profile.heartbeatEnabled === 1;
+    this.heartbeatFrequency = profile.heartbeatFrequency || this.heartbeatFrequency || 'standard';
+    this.publicSpeechEnabled = profile.publicSpeechEnabled !== false && profile.publicSpeechEnabled !== 0;
+    this.lastAgentHeartbeatAt = profile.lastAgentHeartbeatAt || null;
+    this.lastAgentActionAt = profile.lastAgentActionAt || null;
+    this.lastPublicSpeechAt = profile.lastPublicSpeechAt || null;
+    if (this.state !== 'trick' && this.state !== 'greet' && this.state !== 'cheering') {
+      this.state = this.controlMode;
+    }
+  }
+
+  setControlMode(controlMode) {
+    this.controlMode = controlMode;
+    if (this.state !== 'trick' && this.state !== 'greet' && this.state !== 'cheering') {
+      this.state = controlMode;
+    }
+  }
+
+  moveTo(x, y) {
+    this.targetX = Math.max(0, Math.min(CONFIG.WORLD_WIDTH, x));
+    this.targetY = Math.max(0, Math.min(CONFIG.WORLD_HEIGHT, y));
+  }
+
+  showBubble(text) {
+    this._bubbleText = text;
+    this._bubbleTimer = CONFIG.BUBBLE_DURATION;
   }
 
   /**
@@ -300,7 +372,7 @@ export class Pet {
    */
   stopCheering() {
     if (this.state === 'cheering') {
-      this.state = 'follow';
+      this.state = this.controlMode;
       this._cheerBubble = null;
       this._cheerBubbleTimer = 0;
       this._cheerTimer = 0;
@@ -315,9 +387,22 @@ export class Pet {
   toJSON() {
     return {
       type: this.type,
+      id: this.id,
+      ownerUserId: this.ownerUserId,
+      nickname: this.nickname,
       x: Math.round(this.x),
       y: Math.round(this.y),
+      targetX: Math.round(this.targetX),
+      targetY: Math.round(this.targetY),
+      controlMode: this.controlMode,
       state: this.state,
+      bubble: this._bubbleText,
+      bubbleTimer: this._bubbleTimer > 0 ? Math.round(this._bubbleTimer) : 0,
+      heartbeatEnabled: this.heartbeatEnabled,
+      heartbeatFrequency: this.heartbeatFrequency,
+      publicSpeechEnabled: this.publicSpeechEnabled,
+      lastAgentHeartbeatAt: this.lastAgentHeartbeatAt,
+      lastAgentActionAt: this.lastAgentActionAt,
       cheerBubble: this._cheerBubble || null,
       cheerBubbleTimer: this._cheerBubbleTimer > 0 ? Math.round(this._cheerBubbleTimer) : 0,
     };

@@ -287,7 +287,13 @@ export class World {
       }
     }
 
-    const user = new User({ id, name, type, petType, coins: resolvedCoins });
+    const petProfile = !String(id).startsWith('npc_')
+      ? this.database.getPetByOwnerUserId(id)
+      : null;
+    const user = new User({ id, name, type, petType, petProfile, coins: resolvedCoins });
+    if (petProfile) {
+      this.applyPetProfileToUser(user, petProfile);
+    }
     this.users.set(id, user);
 
     // 广播
@@ -343,6 +349,49 @@ export class World {
    */
   getUserCount() {
     return this.users.size;
+  }
+
+  applyPetProfileToUser(user, petProfile) {
+    if (!user?.pet || !petProfile) return user;
+    user.pet.applyProfile(petProfile);
+    return user;
+  }
+
+  _getAgentPetContext(agentToken) {
+    if (!agentToken) {
+      return { success: false, error: '需要 Agent Token', code: 'AUTH_REQUIRED' };
+    }
+    if (Date.now() > agentToken.expiresAt) {
+      return { success: false, error: 'Agent Token 无效或过期', code: 'AUTH_REQUIRED' };
+    }
+
+    const petProfile = this.database.getPetById(agentToken.petId);
+    if (!petProfile) {
+      return { success: false, error: '宠物不存在', code: 'PET_NOT_FOUND' };
+    }
+    const binding = this.database.getAgentBindingByPetId(agentToken.petId);
+    if (!binding || binding.agentId !== agentToken.agentId) {
+      return { success: false, error: 'Agent token 没有绑定宠物', code: 'AGENT_NOT_BOUND' };
+    }
+    if (binding.status !== 'active') {
+      return { success: false, error: '主人已断开 Agent', code: 'BINDING_REVOKED' };
+    }
+
+    const owner = this.users.get(petProfile.ownerUserId);
+    if (owner?.pet) {
+      this.applyPetProfileToUser(owner, petProfile);
+    }
+    return { success: true, petProfile, binding, owner, pet: owner?.pet || null };
+  }
+
+  _requireAgentControlled(ctx) {
+    if (ctx.petProfile.controlMode !== 'agent_controlled') {
+      return { success: false, error: '主人尚未开启 Agent 接管', code: 'AGENT_CONTROL_DISABLED' };
+    }
+    if (!ctx.owner || !ctx.pet) {
+      return { success: false, error: '主人未加入澡堂', code: 'NOT_IN_WORLD' };
+    }
+    return null;
   }
 
   // ─── 操作处理 ───────────────────────────────────────
@@ -984,6 +1033,217 @@ export class World {
       default:
         return { success: false, error: '无效的宠物操作', code: 'INVALID_ACTION' };
     }
+  }
+
+  processPetRecall(ownerUserId, { follow = true } = {}) {
+    const user = this.users.get(ownerUserId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+    if (!user.pet) return { success: false, error: '该角色没有宠物', code: 'NO_PET' };
+    const profile = this.database.getPetByOwnerUserId(ownerUserId);
+    if (!profile) return { success: false, error: '宠物不存在', code: 'PET_NOT_FOUND' };
+
+    user.pet.x = user.x + 12;
+    user.pet.y = user.y + 8;
+    user.pet.moveTo(user.pet.x, user.pet.y);
+    let updated = profile;
+    if (follow) {
+      updated = this.database.updatePetControlMode(profile.id, 'follow');
+      user.pet.setControlMode('follow');
+    }
+    this.applyPetProfileToUser(user, updated);
+    this._broadcast('pet:recalled', {
+      ownerUserId,
+      petId: updated.id,
+      controlMode: updated.controlMode,
+    });
+    return { success: true, pet: user.pet.toJSON() };
+  }
+
+  processPetDisconnectAgent(ownerUserId) {
+    const profile = this.database.getPetByOwnerUserId(ownerUserId);
+    if (!profile) return { success: false, error: '宠物不存在', code: 'PET_NOT_FOUND' };
+    const binding = this.database.revokeAgentBindingForPet(profile.id);
+    const user = this.users.get(ownerUserId);
+    if (user?.pet) {
+      const updated = this.database.updatePetControlMode(profile.id, 'follow');
+      this.applyPetProfileToUser(user, updated);
+    }
+    return { success: true, binding };
+  }
+
+  processAgentPetStatus(agentToken) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    return {
+      success: true,
+      pet: ctx.pet ? ctx.pet.toJSON() : {
+        id: ctx.petProfile.id,
+        nickname: ctx.petProfile.petNickname,
+        type: ctx.petProfile.petType,
+        controlMode: ctx.petProfile.controlMode,
+      },
+      owner: ctx.owner ? {
+        id: ctx.owner.id,
+        name: ctx.owner.name,
+        online: true,
+        x: Math.round(ctx.owner.x),
+        y: Math.round(ctx.owner.y),
+      } : {
+        id: ctx.petProfile.ownerUserId,
+        online: false,
+      },
+      binding: ctx.binding,
+      settings: {
+        controlMode: ctx.petProfile.controlMode,
+        heartbeatEnabled: !!ctx.petProfile.heartbeatEnabled,
+        heartbeatFrequency: ctx.petProfile.heartbeatFrequency,
+        publicSpeechEnabled: !!ctx.petProfile.publicSpeechEnabled,
+        lastAgentHeartbeatAt: ctx.petProfile.lastAgentHeartbeatAt,
+        lastAgentActionAt: ctx.petProfile.lastAgentActionAt,
+      },
+    };
+  }
+
+  processAgentPetLook(agentToken) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    const petX = ctx.pet?.x ?? ctx.owner?.x ?? 0;
+    const petY = ctx.pet?.y ?? ctx.owner?.y ?? 0;
+    const nearbyUsers = [...this.users.values()]
+      .filter((u) => u.id !== ctx.petProfile.ownerUserId)
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        type: u.type,
+        state: u.state,
+        x: Math.round(u.x),
+        y: Math.round(u.y),
+        distance: Math.round(Math.hypot(u.x - petX, u.y - petY)),
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 8);
+    return {
+      success: true,
+      pet: ctx.pet ? ctx.pet.toJSON() : null,
+      owner: ctx.owner ? { id: ctx.owner.id, name: ctx.owner.name, x: Math.round(ctx.owner.x), y: Math.round(ctx.owner.y), online: true } : { id: ctx.petProfile.ownerUserId, online: false },
+      nearbyUsers,
+      recentMessages: this.chatManager.getRecentMessages(10),
+    };
+  }
+
+  processAgentPetHeartbeat(agentToken, payload = {}) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    const now = Date.now();
+    const petProfile = this.database.updatePetAgentHeartbeat(ctx.petProfile.id, now);
+    this.database.updateAgentBindingHeartbeat(ctx.petProfile.id, now);
+    if (ctx.owner?.pet) {
+      ctx.owner.pet.lastAgentHeartbeatAt = now;
+    }
+
+    const intervals = {
+      quiet: 5 * 60 * 1000,
+      standard: 2 * 60 * 1000,
+      active: 45 * 1000,
+    };
+    const activityInterval = intervals[petProfile.heartbeatFrequency] || intervals.standard;
+    const activityDue = !!petProfile.heartbeatEnabled
+      && petProfile.controlMode === 'agent_controlled'
+      && (!petProfile.lastAgentActionAt || now - petProfile.lastAgentActionAt >= activityInterval);
+
+    return {
+      success: true,
+      pet: {
+        controlMode: petProfile.controlMode,
+        heartbeatEnabled: !!petProfile.heartbeatEnabled,
+        publicSpeechEnabled: !!petProfile.publicSpeechEnabled,
+      },
+      nextHeartbeatMs: 30000,
+      activityDue,
+      suggestedActions: activityDue ? ['look', 'move', 'say', 'emote'] : [],
+      received: {
+        status: payload.status || 'online',
+        mood: payload.mood || null,
+        lastAction: payload.last_action || payload.lastAction || null,
+      },
+    };
+  }
+
+  processAgentPetMove(agentToken, payload = {}) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    const controlError = this._requireAgentControlled(ctx);
+    if (controlError) return controlError;
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > CONFIG.WORLD_WIDTH || y < 0 || y > CONFIG.WORLD_HEIGHT) {
+      return { success: false, error: '坐标超出范围', code: 'INVALID_POSITION' };
+    }
+
+    const from = { x: Math.round(ctx.pet.x), y: Math.round(ctx.pet.y) };
+    ctx.pet.moveTo(x, y);
+    ctx.pet.setControlMode('agent_controlled');
+    const updated = this.database.updatePetAgentAction(ctx.petProfile.id);
+    this.applyPetProfileToUser(ctx.owner, updated);
+    return {
+      success: true,
+      from,
+      to: { x: Math.round(ctx.pet.targetX), y: Math.round(ctx.pet.targetY) },
+      pet: ctx.pet.toJSON(),
+    };
+  }
+
+  processAgentPetSay(agentToken, payload = {}) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    const controlError = this._requireAgentControlled(ctx);
+    if (controlError) return controlError;
+    if (!ctx.petProfile.publicSpeechEnabled) {
+      return { success: false, error: '宠物不允许公开发言', code: 'PUBLIC_SPEECH_DISABLED' };
+    }
+    const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+    if (!message) return { success: false, error: '消息不能为空', code: 'INVALID_MESSAGE' };
+    if (message.length > CONFIG.MESSAGE_MAX_LENGTH) {
+      return { success: false, error: `消息过长 (最大 ${CONFIG.MESSAGE_MAX_LENGTH} 字符)`, code: 'MESSAGE_TOO_LONG' };
+    }
+
+    const msg = this.chatManager.addMessage(ctx.petProfile.ownerUserId, ctx.petProfile.petNickname, message, {
+      senderType: 'pet',
+      petId: ctx.petProfile.id,
+      ownerUserId: ctx.petProfile.ownerUserId,
+    });
+    ctx.pet.showBubble(message);
+    const updated = this.database.updatePetAgentAction(ctx.petProfile.id, { publicSpeech: true });
+    this.applyPetProfileToUser(ctx.owner, updated);
+    this._broadcast('chat:message', msg);
+    return { success: true, messageId: msg.id, message: msg, pet: ctx.pet.toJSON() };
+  }
+
+  processAgentPetEmote(agentToken, payload = {}) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    const controlError = this._requireAgentControlled(ctx);
+    if (controlError) return controlError;
+    const action = payload.action || 'trick';
+    if (action === 'greet') {
+      ctx.pet.doGreet();
+      ctx.pet.showBubble('你好呀。');
+    } else {
+      ctx.pet.doTrick();
+      ctx.pet.showBubble('看我表演一个小动作。');
+    }
+    const updated = this.database.updatePetAgentAction(ctx.petProfile.id);
+    this.applyPetProfileToUser(ctx.owner, updated);
+    return { success: true, pet: ctx.pet.toJSON() };
+  }
+
+  processAgentPetReturn(agentToken) {
+    const ctx = this._getAgentPetContext(agentToken);
+    if (!ctx.success) return ctx;
+    if (!ctx.owner || !ctx.pet) {
+      return { success: false, error: '主人未加入澡堂', code: 'NOT_IN_WORLD' };
+    }
+    return this.processPetRecall(ctx.petProfile.ownerUserId, { follow: true });
   }
 
   // ─── 世界循环 ───────────────────────────────────────
