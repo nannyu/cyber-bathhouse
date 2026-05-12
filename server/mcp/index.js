@@ -8,9 +8,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { CONFIG } from '../config.js';
 
 const AGENT_MANUAL_RESOURCE_URI = 'bathhouse://agent-manual';
+const PET_AGENT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const AGENT_MANUAL = `# Cyber Bathhouse Agent Manual
 
@@ -858,6 +860,130 @@ export function createMcpServer(world, auth) {
   return server;
 }
 
+function createPetBindingFromInvite(world, auth, inviteCode) {
+  if (!inviteCode || typeof inviteCode !== 'string') {
+    return { success: false, error: '缺少宠物邀请 code', code: 'INVALID_PARAMS' };
+  }
+  const inviteCodeHash = crypto.createHash('sha256').update(inviteCode).digest('hex');
+  const invite = auth.database.getAgentInviteByCodeHash(inviteCodeHash);
+  if (!invite) return { success: false, error: '邀请码无效', code: 'INVITE_INVALID' };
+  if (Date.now() > invite.expiresAt) return { success: false, error: '邀请码已过期', code: 'INVITE_EXPIRED' };
+  if (invite.usedCount >= invite.maxUses) return { success: false, error: '邀请码已使用', code: 'INVITE_USED' };
+
+  const assignedAgentId = `mcp_pet_agent_${crypto.randomBytes(8).toString('hex')}`;
+  const now = Date.now();
+  auth.database.upsertAgentBinding({
+    id: `bind_${crypto.randomBytes(4).toString('hex')}`,
+    petId: invite.petId,
+    ownerUserId: invite.ownerUserId,
+    agentId: assignedAgentId,
+    status: 'active',
+    clientName: 'MCP Pet Agent',
+    lastSeenAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  auth.database.consumeAgentInvite(invite.id);
+
+  const token = `agt_${crypto.randomBytes(24).toString('hex')}`;
+  auth.database.createAgentToken({
+    token,
+    ownerUserId: invite.ownerUserId,
+    petId: invite.petId,
+    agentId: assignedAgentId,
+    expiresAt: now + PET_AGENT_TOKEN_TTL_MS,
+    createdAt: now,
+  });
+
+  const agentToken = auth.database.getAgentToken(token);
+  const pet = auth.database.getPetById(invite.petId);
+  const owner = world.getUser(invite.ownerUserId);
+  if (owner?.pet && pet) world.applyPetProfileToUser(owner, pet);
+  return { success: true, agentToken, pet };
+}
+
+export function createPetMcpServer(world, auth, inviteCode) {
+  const binding = createPetBindingFromInvite(world, auth, inviteCode);
+  const server = new McpServer({
+    name: 'cyber-bathhouse-pet',
+    version: '1.0.0',
+  }, {
+    instructions: '你已连接到赛博澡堂宠物专用 MCP。只允许控制绑定的宠物。先调用 bathhouse_pet_status 或 bathhouse_pet_heartbeat，再根据用户设置决定是否行动。',
+  });
+
+  function runPetTool(fn) {
+    if (!binding.success) {
+      return {
+        content: [{ type: 'text', text: `❌ 宠物绑定失败：${binding.error}` }],
+        isError: true,
+      };
+    }
+    const result = fn(binding.agentToken);
+    if (!result.success) {
+      return {
+        content: [{ type: 'text', text: `❌ ${result.error}` }],
+        isError: true,
+      };
+    }
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+    };
+  }
+
+  server.tool('bathhouse_pet_status', '查看绑定宠物状态、主人在线状态和心跳设置。', {}, async () => (
+    runPetTool((token) => world.processAgentPetStatus(token))
+  ));
+
+  server.tool('bathhouse_pet_look', '从宠物视角观察澡堂。', {}, async () => (
+    runPetTool((token) => world.processAgentPetLook(token))
+  ));
+
+  server.tool(
+    'bathhouse_pet_heartbeat',
+    '报告宠物 Agent 在线，并获取是否到了定期活跃时间。',
+    {
+      status: z.string().optional(),
+      mood: z.string().optional(),
+      last_action: z.string().optional(),
+    },
+    async (payload) => runPetTool((token) => world.processAgentPetHeartbeat(token, payload || {})),
+  );
+
+  server.tool(
+    'bathhouse_pet_move',
+    '移动绑定宠物。需要主人开启 Agent 接管。',
+    {
+      x: z.number().min(0).max(CONFIG.WORLD_WIDTH),
+      y: z.number().min(0).max(CONFIG.WORLD_HEIGHT),
+    },
+    async (payload) => runPetTool((token) => world.processAgentPetMove(token, payload)),
+  );
+
+  server.tool(
+    'bathhouse_pet_say',
+    '以宠物身份公开说话。需要主人开启 Agent 接管与公开发言。',
+    {
+      message: z.string().min(1).max(CONFIG.MESSAGE_MAX_LENGTH),
+    },
+    async (payload) => runPetTool((token) => world.processAgentPetSay(token, payload)),
+  );
+
+  server.tool(
+    'bathhouse_pet_emote',
+    '让宠物做一个动作或打招呼。',
+    {
+      action: z.enum(['trick', 'greet']).optional(),
+    },
+    async (payload) => runPetTool((token) => world.processAgentPetEmote(token, payload || {})),
+  );
+
+  server.tool('bathhouse_pet_return', '让宠物回到主人身边。', {}, async () => (
+    runPetTool((token) => world.processAgentPetReturn(token))
+  ));
+
+  return server;
+}
+
 /**
  * 将 MCP Server 挂载到 Express 路径
  * @param {import('express').Express} app
@@ -867,8 +993,7 @@ export async function mountMcpServer(app, createServer) {
   // 每个 session 维护独立 server+transport，避免一个 McpServer 重复 connect 导致 500
   const sessions = new Map();
 
-  // POST /mcp — 处理 MCP 请求
-  app.post('/mcp', async (req, res) => {
+  const handlePost = async (req, res) => {
     try {
       // 检查是否有已有 session
       const sessionId = req.headers['mcp-session-id'];
@@ -901,7 +1026,7 @@ export async function mountMcpServer(app, createServer) {
       };
 
       // 连接 MCP Server
-      const mcpServer = createServer();
+      const mcpServer = createServer(req);
       await mcpServer.connect(transport);
 
       await transport.handleRequest(req, res);
@@ -920,10 +1045,9 @@ export async function mountMcpServer(app, createServer) {
         });
       }
     }
-  });
+  };
 
-  // GET /mcp — SSE 流（用于服务端推送）
-  app.get('/mcp', async (req, res) => {
+  const handleGet = async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
     if (sessionId && sessions.has(sessionId)) {
       const { transport } = sessions.get(sessionId);
@@ -935,10 +1059,9 @@ export async function mountMcpServer(app, createServer) {
         id: null,
       });
     }
-  });
+  };
 
-  // DELETE /mcp — 关闭 session
-  app.delete('/mcp', async (req, res) => {
+  const handleDelete = async (req, res) => {
     const sessionId = req.headers['mcp-session-id'];
     if (sessionId && sessions.has(sessionId)) {
       const { transport } = sessions.get(sessionId);
@@ -951,7 +1074,11 @@ export async function mountMcpServer(app, createServer) {
         id: null,
       });
     }
-  });
+  };
 
-  console.log('[MCP] Server mounted at /mcp');
+  app.post(['/mcp', '/mcp/pet'], handlePost);
+  app.get(['/mcp', '/mcp/pet'], handleGet);
+  app.delete(['/mcp', '/mcp/pet'], handleDelete);
+
+  console.log('[MCP] Server mounted at /mcp and /mcp/pet');
 }

@@ -18,7 +18,7 @@ import { World } from './world/World.js';
 import { AuthManager } from './api/auth.js';
 import { createApiRoutes } from './api/routes.js';
 import { initWebSocket } from './api/websocket.js';
-import { createMcpServer, mountMcpServer } from './mcp/index.js';
+import { createMcpServer, createPetMcpServer, mountMcpServer } from './mcp/index.js';
 import { Database } from './db/Database.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -84,7 +84,7 @@ app.use(cors());
 // MCP transport 需要读取原始请求流，不能被 express.json() 预先消费。
 const jsonParser = express.json();
 app.use((req, res, next) => {
-  if (req.path === '/mcp') return next();
+  if (req.path === '/mcp' || req.path === '/mcp/pet') return next();
   return jsonParser(req, res, next);
 });
 
@@ -92,7 +92,12 @@ app.use((req, res, next) => {
 app.use('/api', createApiRoutes(world, auth));
 
 // ─── MCP Server ───────────────────────────────────────
-await mountMcpServer(app, () => createMcpServer(world, auth));
+await mountMcpServer(app, (req) => {
+  if (req?.path === '/mcp/pet') {
+    return createPetMcpServer(world, auth, req.query?.invite);
+  }
+  return createMcpServer(world, auth);
+});
 
 // ─── 静态文件（生产模式）──────────────────────────────
 if (CONFIG.NODE_ENV === 'production') {
@@ -131,6 +136,7 @@ httpServer.listen(CONFIG.PORT, () => {
   console.log(`  🌐 Web:        http://localhost:${CONFIG.PORT}`);
   console.log(`  📡 REST API:   http://localhost:${CONFIG.PORT}/api`);
   console.log(`  🔌 MCP:        http://localhost:${CONFIG.PORT}/mcp`);
+  console.log(`  🐾 Pet MCP:    http://localhost:${CONFIG.PORT}/mcp/pet?invite=...`);
   console.log(`  🔗 WebSocket:  ws://localhost:${CONFIG.PORT}`);
   console.log('');
   console.log(`  📊 环境: ${CONFIG.NODE_ENV}`);
