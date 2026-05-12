@@ -9,6 +9,7 @@
     "dev:client": "vite client --port 5173",
     "build:client": "vite build client --outDir ../dist",
     "test:combat": "node scripts/combat-smoke-test.js",
+    "test:economy": "node scripts/economy-smoke-test.js",
     "start": "NODE_ENV=production node server/index.js",
     "preview": "npm run build:client && npm start"
   },

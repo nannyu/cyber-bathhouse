@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import DatabaseDriver from 'better-sqlite3';
+import { CONFIG } from '../config.js';
 
 function generatePetCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -196,6 +197,13 @@ const MIGRATIONS = [
       ON fight_events(match_id, frame);
     `,
   },
+  {
+    version: 6,
+    description: 'accounts coins for economy and betting',
+    sql: `
+      ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT ${CONFIG.ECONOMY.INITIAL_COINS};
+    `,
+  },
 ];
 
 const DEFAULT_COMBAT_LINES = {
@@ -301,6 +309,13 @@ const DEFAULT_NPC_DIALOGUES = {
 };
 
 export class Database {
+  /**
+   * @param {() => void} fn
+   */
+  runInTransaction(fn) {
+    this.db.transaction(fn)();
+  }
+
   constructor(dbPath) {
     const dir = path.dirname(dbPath);
     fs.mkdirSync(dir, { recursive: true });
@@ -344,6 +359,11 @@ export class Database {
     }
 
     this._ensureColumn('accounts', 'role', "ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+    this._ensureColumn(
+      'accounts',
+      'coins',
+      `ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT ${CONFIG.ECONOMY.INITIAL_COINS}`,
+    );
     this._ensureColumn('sessions', 'role', "ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
     this._ensureColumn('pets', 'chat_visibility', "ALTER TABLE pets ADD COLUMN chat_visibility TEXT NOT NULL DEFAULT 'public'");
     this._ensureCoreTables();
@@ -456,20 +476,30 @@ export class Database {
 
   _prepareStatements() {
     this._insertAccountStmt = this.db.prepare(`
-      INSERT INTO accounts (username, password, nickname, user_id, role)
-      VALUES (@username, @password, @nickname, @userId, @role)
+      INSERT INTO accounts (username, password, nickname, user_id, role, coins)
+      VALUES (@username, @password, @nickname, @userId, @role, @coins)
     `);
 
     this._getAccountByUsernameStmt = this.db.prepare(`
-      SELECT username, password, nickname, user_id AS userId, role
+      SELECT username, password, nickname, user_id AS userId, role, coins
       FROM accounts
       WHERE username = ?
     `);
     this._getAccountByUserIdStmt = this.db.prepare(`
-      SELECT username, password, nickname, user_id AS userId, role
+      SELECT username, password, nickname, user_id AS userId, role, coins
       FROM accounts
       WHERE user_id = ?
       LIMIT 1
+    `);
+
+    this._adjustCoinsStmt = this.db.prepare(`
+      UPDATE accounts
+      SET coins = coins + @delta
+      WHERE user_id = @userId AND coins + @delta >= 0
+    `);
+
+    this._getCoinsStmt = this.db.prepare(`
+      SELECT coins FROM accounts WHERE user_id = ? LIMIT 1
     `);
 
     this._getNicknameCountStmt = this.db.prepare(`
@@ -600,7 +630,7 @@ export class Database {
     `);
 
     this._listAccountsStmt = this.db.prepare(`
-      SELECT user_id AS userId, username, nickname, role
+      SELECT user_id AS userId, username, nickname, role, coins
       FROM accounts
       ORDER BY rowid DESC
       LIMIT ?
@@ -844,7 +874,10 @@ export class Database {
   }
 
   createAccount(account) {
-    this._insertAccountStmt.run(account);
+    this._insertAccountStmt.run({
+      ...account,
+      coins: account.coins ?? CONFIG.ECONOMY.INITIAL_COINS,
+    });
   }
 
   getAccountByUsername(username) {
@@ -853,6 +886,26 @@ export class Database {
 
   getAccountByUserId(userId) {
     return this._getAccountByUserIdStmt.get(userId) || null;
+  }
+
+  /**
+   * @returns {{ success: boolean, coins?: number, code?: string }}
+   */
+  adjustCoinsByUserId(userId, delta) {
+    if (!userId || typeof delta !== 'number' || !Number.isFinite(delta) || Math.round(delta) !== delta) {
+      return { success: false, code: 'INVALID_ARGS' };
+    }
+    const info = this._adjustCoinsStmt.run({ userId, delta });
+    if (info.changes === 0) {
+      return { success: false, code: delta < 0 ? 'INSUFFICIENT_COINS' : 'UPDATE_FAILED' };
+    }
+    const row = this._getCoinsStmt.get(userId);
+    return { success: true, coins: row?.coins ?? 0 };
+  }
+
+  getCoinsByUserId(userId) {
+    const row = this._getCoinsStmt.get(userId);
+    return row?.coins ?? null;
   }
 
   updateAccountPassword(username, password) {

@@ -8,6 +8,7 @@ import { User } from './User.js';
 import { ChatManager } from './ChatManager.js';
 import { FightManager } from './FightManager.js';
 import { MatchAnalyzer } from '../combat/MatchAnalyzer.js';
+import { FIGHT_PHASES } from '../combat/FightMatch.js';
 
 export class World {
   constructor(database) {
@@ -21,6 +22,10 @@ export class World {
 
     /** @type {FightManager} */
     this.fightManager = new FightManager();
+    this.fightManager.setFightEconomyHooks({
+      beforeFinalize: (fight, users) => this._settleFightEconomy(fight, users),
+      onFightCancelled: (fight, users) => this._refundAllFightBets(fight, users),
+    });
 
     /** @type {Function|null} 广播回调 */
     this._broadcastFn = null;
@@ -254,7 +259,7 @@ export class World {
    * @param {string} [options.petType] - 宠物类型
    * @returns {{ success: boolean, user?: User, error?: string }}
    */
-  addUser({ id, name, type, petType }) {
+  addUser({ id, name, type, petType, coins: coinsArg }) {
     // 检查人数上限
     if (this.users.size >= CONFIG.MAX_USERS) {
       return { success: false, error: '澡堂已满', code: 'WORLD_FULL' };
@@ -272,7 +277,17 @@ export class World {
       return { success: false, error: '已在澡堂中', code: 'ALREADY_JOINED' };
     }
 
-    const user = new User({ id, name, type, petType });
+    let resolvedCoins = coinsArg;
+    if (typeof resolvedCoins !== 'number' || !Number.isFinite(resolvedCoins)) {
+      if (typeof id === 'string' && id.startsWith('npc_')) {
+        resolvedCoins = 0;
+      } else {
+        const fromDb = this.database.getCoinsByUserId(id);
+        resolvedCoins = fromDb ?? CONFIG.ECONOMY.INITIAL_COINS;
+      }
+    }
+
+    const user = new User({ id, name, type, petType, coins: resolvedCoins });
     this.users.set(id, user);
 
     // 广播
@@ -517,6 +532,251 @@ export class World {
   }
 
   /**
+   * 观战下注（仅非上场玩家；fight:start 起 CONFIG.ECONOMY.BETTING_WINDOW_MS 内有效）
+   * @param {string} userId
+   * @param {{ fightId: string, side: 'attacker'|'defender', amount: number }} payload
+   */
+  processFightBet(userId, payload) {
+    const user = this.users.get(userId);
+    if (!user) return { success: false, error: '未加入澡堂', code: 'NOT_IN_WORLD' };
+    if (typeof userId === 'string' && userId.startsWith('npc_')) {
+      return { success: false, error: '无法下注', code: 'NOT_ALLOWED' };
+    }
+
+    const fightId = payload?.fightId;
+    const side = payload?.side;
+    const amountRaw = payload?.amount;
+    const amt = Math.floor(Number(amountRaw));
+    if (!fightId || typeof fightId !== 'string') {
+      return { success: false, error: '缺少 fightId', code: 'INVALID_FIGHT' };
+    }
+    if (side !== 'attacker' && side !== 'defender') {
+      return { success: false, error: 'side 须为 attacker 或 defender', code: 'INVALID_SIDE' };
+    }
+    if (!Number.isFinite(amt) || amt < CONFIG.ECONOMY.BET_MIN || amt > CONFIG.ECONOMY.BET_MAX) {
+      return {
+        success: false,
+        error: `下注金额须在 ${CONFIG.ECONOMY.BET_MIN}-${CONFIG.ECONOMY.BET_MAX} 之间`,
+        code: 'INVALID_BET_AMOUNT',
+      };
+    }
+
+    const fight = this.fightManager.getFightById(fightId);
+    if (!fight) return { success: false, error: '对局不存在', code: 'FIGHT_NOT_FOUND' };
+    if (fight.phase !== FIGHT_PHASES.ACTIVE) {
+      return { success: false, error: '当前不可下注', code: 'BETTING_CLOSED' };
+    }
+    const now = Date.now();
+    if (!fight.bettingEndsAt || now > fight.bettingEndsAt) {
+      return { success: false, error: '下注时间已结束', code: 'BETTING_CLOSED' };
+    }
+    if (userId === fight.attackerId || userId === fight.defenderId) {
+      return { success: false, error: '上场选手不能下注', code: 'FIGHTER_CANNOT_BET' };
+    }
+
+    const prev = fight.bets.get(userId);
+    const prevAmt = prev?.amount || 0;
+    const delta = amt - prevAmt;
+    const dbCoins = this.database.getCoinsByUserId(userId) ?? 0;
+    if (delta > dbCoins) {
+      return { success: false, error: '金币不足', code: 'INSUFFICIENT_COINS' };
+    }
+
+    try {
+      this.database.runInTransaction(() => {
+        if (prevAmt > 0) {
+          const r1 = this.database.adjustCoinsByUserId(userId, prevAmt);
+          if (!r1.success) throw new Error('REFUND_FAIL');
+        }
+        const r2 = this.database.adjustCoinsByUserId(userId, -amt);
+        if (!r2.success) throw new Error('DEDUCT_FAIL');
+      });
+    } catch {
+      return { success: false, error: '下注失败', code: 'BET_FAILED' };
+    }
+
+    try {
+      fight.bets.set(userId, { side, amount: amt });
+    } catch (e) {
+      this._revertFightBetDbAfterMapFailure(userId, amt, prevAmt, fight.id);
+      return {
+        success: false,
+        error: '下注状态写入失败，金币已尝试冲正',
+        code: 'BET_STATE_FAIL',
+      };
+    }
+
+    let fresh;
+    try {
+      fresh = this.database.getCoinsByUserId(userId);
+      if (fresh != null) user.coins = fresh;
+    } catch (e) {
+      console.error('[economy] processFightBet sync coins failed', userId, fight.id, e?.message || e);
+    }
+
+    try {
+      const pool = fight.getBettingSummary();
+      this._broadcast('fight:bet:pool', { fightId: fight.id, ...pool });
+    } catch (e) {
+      console.error('[economy] fight:bet:pool broadcast failed', fight.id, e?.message || e);
+    }
+
+    return {
+      success: true,
+      fightId: fight.id,
+      side,
+      amount: amt,
+      coins: user.coins,
+      pool: fight.getBettingSummary(),
+    };
+  }
+
+  /**
+   * DB 已按新注扣款，但内存 bets 写入失败时，冲正：`+(amt - prevAmt)` 与事务内 `+prevAmt`、`-amt` 的净效果相反。
+   */
+  _revertFightBetDbAfterMapFailure(userId, amt, prevAmt, fightId) {
+    const net = amt - prevAmt;
+    if (!net) return;
+    try {
+      this.database.runInTransaction(() => {
+        const r = this.database.adjustCoinsByUserId(userId, net);
+        if (!r.success) throw new Error('COMPENSATE_FAIL');
+      });
+      const c = this.database.getCoinsByUserId(userId);
+      if (c != null) this._applyCoinsToOnlineUser(userId, c);
+    } catch (e) {
+      console.error(
+        '[economy] CRITICAL: fight bet map failed and compensate failed',
+        { userId, fightId, amt, prevAmt, net, err: e?.message || e },
+      );
+    }
+  }
+
+  _applyCoinsToOnlineUser(userId, coins) {
+    const u = this.users.get(userId);
+    if (u && typeof coins === 'number' && Number.isFinite(coins)) u.coins = Math.max(0, Math.floor(coins));
+  }
+
+  /**
+   * 全额退回本场下注（逃跑 / forceEnd / 平局等）。单事务：任一条失败则整笔回滚，且不清 bets 映射。
+   */
+  _refundAllFightBets(fight, _users) {
+    if (!fight?.bets?.size) return;
+    const uids = [...fight.bets.keys()];
+    try {
+      this.database.runInTransaction(() => {
+        for (const [uid, bet] of [...fight.bets.entries()]) {
+          const r = this.database.adjustCoinsByUserId(uid, bet.amount);
+          if (!r.success) throw new Error(`REFUND_CANCEL:${uid}`);
+        }
+      });
+      for (const uid of uids) {
+        const c = this.database.getCoinsByUserId(uid);
+        if (c != null) this._applyCoinsToOnlineUser(uid, c);
+      }
+      fight.bets.clear();
+    } catch (e) {
+      console.error('[economy] _refundAllFightBets failed', fight?.id, e?.message || e);
+    }
+  }
+
+  /**
+   * @returns {{ kind: 'none' } | { kind: 'refund_all' } | { kind: 'payout', payouts: { uid: string, payout: number }[] }}
+   */
+  _computeParimutuelPlan(fight) {
+    const Ta = fight.sumStake('attacker');
+    const Td = fight.sumStake('defender');
+    const pool = Ta + Td;
+    if (pool <= 0) return { kind: 'none' };
+
+    const winSide = fight.winnerId === fight.attackerId ? 'attacker' : 'defender';
+    const Tw = winSide === 'attacker' ? Ta : Td;
+    if (Tw <= 0) return { kind: 'refund_all' };
+
+    const entries = [...fight.bets.entries()]
+      .filter(([, b]) => b.side === winSide)
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    if (entries.length === 0) return { kind: 'refund_all' };
+
+    const payouts = entries.map(([uid, bet]) => ({
+      uid,
+      payout: Math.floor((pool * bet.amount) / Tw),
+    }));
+    const sumP = payouts.reduce((s, p) => s + p.payout, 0);
+    let rem = pool - sumP;
+    let i = 0;
+    while (rem > 0 && payouts.length > 0) {
+      payouts[i % payouts.length].payout += 1;
+      rem -= 1;
+      i += 1;
+    }
+    return { kind: 'payout', payouts };
+  }
+
+  /**
+   * 终局经济：平局仅退款；非平局在同一 DB 事务内完成胜负赏金 + 奖池派彩或全额退回，成功后再清 bets 并标记已结算。
+   */
+  _settleFightEconomy(fight, users) {
+    if (fight._economySettled) return;
+
+    const syncIds = new Set();
+    try {
+      this.database.runInTransaction(() => {
+        if (fight.finishOutcome === 'draw') {
+          for (const [uid, bet] of [...fight.bets.entries()]) {
+            const r = this.database.adjustCoinsByUserId(uid, bet.amount);
+            if (!r.success) throw new Error(`REFUND_DRAW:${uid}`);
+            syncIds.add(uid);
+          }
+          return;
+        }
+
+        const wId = fight.winnerId;
+        const lId = fight.loserId;
+        if (wId && !String(wId).startsWith('npc_')) {
+          const r = this.database.adjustCoinsByUserId(wId, CONFIG.ECONOMY.FIGHT_WIN_COINS);
+          if (!r.success) throw new Error(`WIN:${wId}`);
+          syncIds.add(wId);
+        }
+        if (lId && !String(lId).startsWith('npc_')) {
+          const cur = this.database.getCoinsByUserId(lId) ?? 0;
+          const dec = Math.min(CONFIG.ECONOMY.FIGHT_LOSS_COINS, cur);
+          if (dec > 0) {
+            const r = this.database.adjustCoinsByUserId(lId, -dec);
+            if (!r.success) throw new Error(`LOSS:${lId}`);
+            syncIds.add(lId);
+          }
+        }
+
+        const plan = this._computeParimutuelPlan(fight);
+        if (plan.kind === 'refund_all') {
+          for (const [uid, bet] of [...fight.bets.entries()]) {
+            const r = this.database.adjustCoinsByUserId(uid, bet.amount);
+            if (!r.success) throw new Error(`REFUND_POOL:${uid}`);
+            syncIds.add(uid);
+          }
+        } else if (plan.kind === 'payout') {
+          for (const { uid, payout } of plan.payouts) {
+            if (payout <= 0) continue;
+            const r = this.database.adjustCoinsByUserId(uid, payout);
+            if (!r.success) throw new Error(`PAYOUT:${uid}`);
+            syncIds.add(uid);
+          }
+        }
+      });
+
+      for (const uid of syncIds) {
+        const c = this.database.getCoinsByUserId(uid);
+        if (c != null) this._applyCoinsToOnlineUser(uid, c);
+      }
+      fight.bets.clear();
+      fight._economySettled = true;
+    } catch (e) {
+      console.error('[economy] _settleFightEconomy failed', fight?.id, e?.message || e);
+    }
+  }
+
+  /**
    * Queue an attack intent for the next combat tick.
    * @param {string} userId
    */
@@ -649,6 +909,7 @@ export class World {
     }
     user._checkZoneState();
 
+    this._refundAllFightBets(fight, this.users);
     this.fightManager._fights.delete(fight.id);
 
     this._broadcast('fight:ended', {

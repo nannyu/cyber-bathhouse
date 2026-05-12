@@ -2,12 +2,23 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import assert from 'assert/strict';
+import bcrypt from 'bcryptjs';
 import { Database } from '../server/db/Database.js';
 import { World } from '../server/world/World.js';
 import { FIGHT_PHASES } from '../server/combat/FightMatch.js';
+import { CONFIG } from '../server/config.js';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cyber-bathhouse-combat-'));
 const db = new Database(path.join(tempDir, 'combat.sqlite'));
+const pw = bcrypt.hashSync('smoke', 4);
+const initial = CONFIG.ECONOMY.INITIAL_COINS;
+db.createAccount({
+  username: 'smoke_alpha', password: pw, nickname: 'Alpha', userId: 'usr_alpha', role: 'user', coins: initial,
+});
+db.createAccount({
+  username: 'smoke_beta', password: pw, nickname: 'Beta', userId: 'usr_beta', role: 'user', coins: initial,
+});
+
 const world = new World(db);
 const broadcastEvents = [];
 

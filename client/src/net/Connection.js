@@ -161,6 +161,7 @@ export class Connection {
     this.socket.on('fight:countdown:start', (data) => this._emit('fight:countdown:start', data));
     this.socket.on('fight:countdown', (data) => this._emit('fight:countdown', data));
     this.socket.on('fight:start', (data) => this._emit('fight:start', data));
+    this.socket.on('fight:bet:pool', (data) => this._emit('fight:bet:pool', data));
     this.socket.on('scrub:started', (data) => this._emit('scrub:started', data));
   }
 

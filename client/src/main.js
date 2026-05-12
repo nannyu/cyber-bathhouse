@@ -17,6 +17,11 @@ let privateChatLastTs = 0;
 let privateChatPollTimer = null;
 let connectionHandlersBound = false;
 
+/** @type {{ timer: ReturnType<typeof setInterval>|null, fightId: string|null }} */
+let spectatorBetUi = { timer: null, fightId: null };
+const BET_MIN_CLIENT = 10;
+const BET_MAX_CLIENT = 200;
+
 // ─── DOM 引用 ─────────────────────────────────────────
 const loginScreen = document.getElementById('login-screen');
 const appEl = document.getElementById('app');
@@ -523,6 +528,114 @@ function enterApp(name) {
   syncBgmButtons();
 }
 
+function teardownSpectatorBetPanel() {
+  if (spectatorBetUi.timer) {
+    clearInterval(spectatorBetUi.timer);
+    spectatorBetUi.timer = null;
+  }
+  spectatorBetUi.fightId = null;
+  document.getElementById('spectator-bet-dock')?.remove();
+}
+
+function updateSpectatorBetPoolDom(data) {
+  const dock = document.getElementById('spectator-bet-dock');
+  if (!dock || !data || data.fightId !== dock.dataset.fightId) return;
+  const a = dock.querySelector('[data-pool="attacker"]');
+  const d = dock.querySelector('[data-pool="defender"]');
+  if (a) a.textContent = String(data.totalAttacker ?? 0);
+  if (d) d.textContent = String(data.totalDefender ?? 0);
+}
+
+/**
+ * @param {{ fightId?: string, attackerId?: string, defenderId?: string, bettingEndsAt?: number }} data
+ */
+function mountSpectatorBetPanel(data) {
+  teardownSpectatorBetPanel();
+  if (!data?.fightId || !conn?.userId) return;
+  if (data.attackerId === conn.userId || data.defenderId === conn.userId) return;
+
+  const attackerName = getUserNameById(data.attackerId);
+  const defenderName = getUserNameById(data.defenderId);
+  const endsAt = data.bettingEndsAt || (Date.now() + 10000);
+
+  const dock = document.createElement('div');
+  dock.id = 'spectator-bet-dock';
+  dock.dataset.fightId = data.fightId;
+  dock.style.cssText = `
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 10020; min-width: 300px; max-width: 92vw;
+    background: rgba(12, 14, 28, 0.94); border: 1px solid rgba(0, 240, 255, 0.45);
+    border-radius: 12px; padding: 12px 14px; color: #e8f7ff;
+    font-family: system-ui, sans-serif; font-size: 13px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  `;
+  dock.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-weight:700;color:#7ef9ff;">观战下注</span>
+      <span data-bet-timer style="color:#ffd54f;font-variant-numeric:tabular-nums;"></span>
+    </div>
+    <div style="opacity:0.9;margin-bottom:6px;">攻 ${escapeHtml(attackerName)} vs 守 ${escapeHtml(defenderName)}</div>
+    <div style="margin-bottom:8px;font-size:12px;">池子：攻 <span data-pool="attacker">0</span> · 守 <span data-pool="defender">0</span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <label style="font-size:12px;">金额 <input data-bet-amount type="number" min="${BET_MIN_CLIENT}" max="${BET_MAX_CLIENT}" value="50"
+        style="width:72px;padding:4px 6px;border-radius:6px;border:1px solid #334;"></label>
+      <button type="button" data-bet-side="attacker" style="flex:1;padding:8px;border-radius:8px;border:none;background:#2563eb;color:#fff;cursor:pointer;font-weight:600;">押攻方</button>
+      <button type="button" data-bet-side="defender" style="flex:1;padding:8px;border-radius:8px;border:none;background:#db2777;color:#fff;cursor:pointer;font-weight:600;">押守方</button>
+    </div>
+    <div data-bet-msg style="margin-top:8px;font-size:12px;color:#fca5a5;min-height:16px;"></div>
+  `;
+  document.body.appendChild(dock);
+
+  const timerEl = dock.querySelector('[data-bet-timer]');
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    if (timerEl) timerEl.textContent = left > 0 ? `剩余 ${left}s` : '已封盘';
+    if (left <= 0) {
+      dock.querySelectorAll('button[data-bet-side]').forEach((b) => { b.disabled = true; });
+    }
+  };
+  tick();
+  spectatorBetUi.timer = setInterval(tick, 250);
+  spectatorBetUi.fightId = data.fightId;
+
+  const msgEl = dock.querySelector('[data-bet-msg]');
+  const submit = async (side) => {
+    const input = dock.querySelector('[data-bet-amount]');
+    const amount = Math.floor(Number(input?.value));
+    if (!Number.isFinite(amount) || amount < BET_MIN_CLIENT || amount > BET_MAX_CLIENT) {
+      if (msgEl) msgEl.textContent = `金额须在 ${BET_MIN_CLIENT}-${BET_MAX_CLIENT}`;
+      return;
+    }
+    if (Date.now() > endsAt) {
+      if (msgEl) msgEl.textContent = '下注时间已结束';
+      return;
+    }
+    try {
+      const res = await fetch('/api/action/fight-bet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${conn.token}`,
+        },
+        body: JSON.stringify({ fight_id: data.fightId, side, amount }),
+      });
+      const j = await res.json();
+      if (!j.success) {
+        if (msgEl) msgEl.textContent = j.error || j.code || '下注失败';
+        return;
+      }
+      if (msgEl) msgEl.textContent = `已下注 ${side === 'attacker' ? '攻方' : '守方'} ${amount} 币`;
+      updateSpectatorBetPoolDom({ fightId: data.fightId, ...j.pool });
+    } catch (e) {
+      if (msgEl) msgEl.textContent = e?.message || '网络错误';
+    }
+  };
+
+  dock.querySelectorAll('button[data-bet-side]').forEach((btn) => {
+    btn.addEventListener('click', () => submit(btn.getAttribute('data-bet-side')));
+  });
+}
+
 function bindConnectionHandlersOnce() {
   if (connectionHandlersBound) return;
   connectionHandlersBound = true;
@@ -530,7 +643,9 @@ function bindConnectionHandlersOnce() {
   // 监听服务端事件（只绑定一次，避免重复渲染/重复系统消息）
   conn.on('world:update', (state) => {
     game?.updateState(state);
-    headerInfo.textContent = `在线: ${state.users?.length || 0} 人`;
+    const self = state.users?.find((u) => u.id === conn.userId);
+    const coinBit = self && typeof self.coins === 'number' ? ` · 💰${self.coins}` : '';
+    headerInfo.textContent = `在线: ${state.users?.length || 0} 人${coinBit}`;
 
     // 更新用户列表面板
     if (currentTab === 'users') renderUsersPanel(state.users);
@@ -564,21 +679,6 @@ function bindConnectionHandlersOnce() {
 
   conn.on('fight:started', (data) => {
     appendSystemMessage(`⚔️ ${data.attacker.name} 向 ${data.defender.name} 发起了挑战！`);
-  });
-
-  conn.on('fight:ended', (data) => {
-    if (game) game.handleFightEnded(data);
-    if (data.flee) {
-      appendSystemMessage(`🏃 ${data.loserName} 临阵脱逃了，${data.winnerName} 获胜！`);
-    } else if (data.isDraw) {
-      appendSystemMessage('🤝 时间到！双方血量相同，平局。');
-    } else if (data.finishOutcome === 'time' && data.winnerName && data.loserName) {
-      appendSystemMessage(`⏱️ 时间到！${data.winnerName} 以血量优势获胜（击败 ${data.loserName}）。`);
-    } else if (data.winnerName && data.loserName) {
-      appendSystemMessage(`🏆 ${data.winnerName} 打赢了 ${data.loserName}！`);
-    } else {
-      appendSystemMessage('战斗结束。');
-    }
   });
 
   conn.on('fight:hit', (data) => {
@@ -624,8 +724,29 @@ function bindConnectionHandlersOnce() {
     game?.showCountdown(data.label, data.seconds);
   });
 
-  conn.on('fight:start', () => {
+  conn.on('fight:start', (data) => {
     game?.showCountdown('FIGHT!', 0, true);
+    mountSpectatorBetPanel(data);
+  });
+
+  conn.on('fight:bet:pool', (data) => {
+    updateSpectatorBetPoolDom(data);
+  });
+
+  conn.on('fight:ended', (data) => {
+    teardownSpectatorBetPanel();
+    if (game) game.handleFightEnded(data);
+    if (data.flee) {
+      appendSystemMessage(`🏃 ${data.loserName} 临阵脱逃了，${data.winnerName} 获胜！`);
+    } else if (data.isDraw) {
+      appendSystemMessage('🤝 时间到！双方血量相同，平局。');
+    } else if (data.finishOutcome === 'time' && data.winnerName && data.loserName) {
+      appendSystemMessage(`⏱️ 时间到！${data.winnerName} 以血量优势获胜（击败 ${data.loserName}）。`);
+    } else if (data.winnerName && data.loserName) {
+      appendSystemMessage(`🏆 ${data.winnerName} 打赢了 ${data.loserName}！`);
+    } else {
+      appendSystemMessage('战斗结束。');
+    }
   });
 
   conn.on('scrub:started', (data) => {
@@ -1382,6 +1503,7 @@ function renderUsersPanel(users) {
           <div class="user-item__state">${state}</div>
         </div>
         <span class="user-item__hp">HP:${u.hp}</span>
+        <span class="user-item__hp" style="margin-left:6px;">💰${typeof u.coins === 'number' ? u.coins : '—'}</span>
       </div>
     `;
   }).join('');

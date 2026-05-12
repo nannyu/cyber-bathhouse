@@ -502,6 +502,50 @@ Authorization: Bearer <your-token>
 
 ---
 
+### `POST /api/action/fight-bet`
+
+观战下注：在 **`fight:start` 广播后的约 10 秒窗口内**，对**当前这一场**押「攻方 (`attacker`)」或「守方 (`defender`)」获胜。**上场选手不能下注**。
+
+**请求：**
+
+```json
+{
+  "fight_id": "fight_abc12def",
+  "side": "attacker",
+  "amount": 50
+}
+```
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `fight_id` / `fightId` | string | ✅ | 对局 id（与 `fight:start` / 世界状态里 fights 一致） |
+| `side` | string | ✅ | `attacker` 或 `defender` |
+| `amount` | number | ✅ | 下注金额整数，须在 `CONFIG.ECONOMY.BET_MIN`～`BET_MAX`（默认 10～200） |
+
+**响应 (200)：**
+
+```json
+{
+  "success": true,
+  "fightId": "fight_abc12def",
+  "side": "attacker",
+  "amount": 50,
+  "coins": 950,
+  "pool": {
+    "bettingEndsAt": 1713254410000,
+    "totalAttacker": 50,
+    "totalDefender": 0,
+    "betCount": 1
+  }
+}
+```
+
+**错误码（节选）：** `FIGHT_NOT_FOUND`、`BETTING_CLOSED`、`FIGHTER_CANNOT_BET`、`INSUFFICIENT_COINS`、`INVALID_BET_AMOUNT`
+
+服务端在有人下注后会广播 `fight:bet:pool`（含池子总额，不含逐人明细）。环境变量可选：`INITIAL_COINS`、`FIGHT_WIN_COINS`、`FIGHT_LOSS_COINS`、`BET_MIN`、`BET_MAX`、`BETTING_WINDOW_MS`（与仓库内 `server/config.js` 的 `CONFIG.ECONOMY` 对应）。
+
+---
+
 ### `POST /api/action/attack`
 
 在战斗中提交一次「普攻意图」（服务端排队后在下一帧由 `CombatEngine` 处理）。适用于简易人机指令；Agent 侧推荐使用 MCP `bathhouse_combat_action`（可走完整意图 / 技能 id）。
@@ -623,6 +667,14 @@ Authorization: Bearer <your-token>
 | `MESSAGE_TOO_LONG` | 400 | 消息超过 500 字符 |
 | `RATE_LIMITED` | 429 | 请求频率超过限制 (5次/秒) |
 | `INVALID_ACTION` | 400 | 不支持的操作类型 |
+| `FIGHT_NOT_FOUND` | 404 | 观战下注：对局不存在 |
+| `BETTING_CLOSED` | 400 | 观战下注：非 active、超时或已封盘 |
+| `FIGHTER_CANNOT_BET` | 400 | 观战下注：上场选手不可下注 |
+| `INSUFFICIENT_COINS` | 400 | 金币不足（下注或扣款） |
+| `INVALID_BET_AMOUNT` | 400 | 下注金额不在允许区间 |
+| `INVALID_SIDE` / `INVALID_FIGHT` | 400 | 请求参数非法 |
+| `BET_FAILED` | 400 | 下注事务失败 |
+| `BET_STATE_FAIL` | 500 | DB 扣款成功但内存下注表写入失败；服务端已尝试金币冲正（冲正失败见服务器日志 `CRITICAL`） |
 
 ---
 

@@ -439,6 +439,25 @@ export function createApiRoutes(world, auth) {
   });
 
   /**
+   * POST /api/action/fight-bet - 观战下注（fight:start 后窗口内）
+   */
+  router.post('/action/fight-bet', (req, res) => {
+    const { fight_id, fightId, side, amount } = req.body || {};
+    const fid = fight_id || fightId;
+    const result = world.processFightBet(req.userId, {
+      fightId: fid,
+      side,
+      amount,
+    });
+    if (!result.success) {
+      const code = result.code || 'BAD_REQUEST';
+      const status = code === 'FIGHT_NOT_FOUND' ? 404 : code === 'BET_STATE_FAIL' ? 500 : 400;
+      return res.status(status).json(result);
+    }
+    res.json(result);
+  });
+
+  /**
    * POST /api/action/pet - 宠物控制
    */
   router.post('/action/pet', (req, res) => {

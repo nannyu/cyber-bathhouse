@@ -24,10 +24,21 @@ export class FightManager {
 
     /** @type {Function|null} (event,data)=>void —— 由 World 注入用于广播 */
     this._broadcastFn = null;
+
+    /** @type {{ beforeFinalize?: Function, onFightCancelled?: Function }|null} */
+    this._economyHooks = null;
+  }
+
+  setFightEconomyHooks(hooks) {
+    this._economyHooks = hooks || null;
   }
 
   setBroadcast(fn) {
     this._broadcastFn = fn;
+  }
+
+  getFightById(fightId) {
+    return this._fights.get(fightId);
   }
 
   _broadcast(event, data) {
@@ -248,6 +259,7 @@ export class FightManager {
 
     if (remainMs <= 0) {
       fight.setPhase(FIGHT_PHASES.ACTIVE, now);
+      fight.bettingEndsAt = now + CONFIG.ECONOMY.BETTING_WINDOW_MS;
 
       this._broadcast('fight:start', {
         fightId: fight.id,
@@ -255,6 +267,8 @@ export class FightManager {
         defenderId: fight.defenderId,
         roundDurationSec: ARENA.roundDurationSec,
         roundDurationFrames: ARENA.roundDurationFrames,
+        bettingEndsAt: fight.bettingEndsAt,
+        bettingWindowMs: CONFIG.ECONOMY.BETTING_WINDOW_MS,
       });
     }
   }
@@ -348,6 +362,8 @@ export class FightManager {
     const fight = this._findFightByUser(userId);
     if (!fight) return null;
 
+    this._economyHooks?.onFightCancelled?.(fight, users);
+
     const opponentId = fight.attackerId === userId ? fight.defenderId : fight.attackerId;
     const opponent = users.get(opponentId);
 
@@ -412,6 +428,8 @@ export class FightManager {
    * @param {number} now
    */
   _finalizeFight(fight, users, now = Date.now()) {
+    this._economyHooks?.beforeFinalize?.(fight, users);
+
     // 停止宠物加油
     const fAttacker = users.get(fight.attackerId);
     const fDefender = users.get(fight.defenderId);

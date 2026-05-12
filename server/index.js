@@ -59,6 +59,7 @@ if (!existingAdmin) {
     nickname,
     userId,
     role: 'admin',
+    coins: CONFIG.ECONOMY.INITIAL_COINS,
   });
 
   // 创建一个默认宠物档案，保证管理员可正常进入世界并点击宠物界面

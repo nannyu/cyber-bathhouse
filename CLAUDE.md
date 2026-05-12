@@ -26,6 +26,7 @@ npm install
 npm run dev              # 后端 :3000 + Vite :5173
 npm run build:client     # 构建到 dist/
 npm run test:combat      # CombatEngine 冒烟（脚本内跳过擂台 staging）
+npm run test:economy     # accounts.coins + adjustCoins 防负币冒烟
 ```
 
 ## 代码约定（格斗相关）

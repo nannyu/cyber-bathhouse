@@ -438,8 +438,9 @@ if (rage >= 100 && opponentHp < 40 && riskTolerance > 0.7) {
 | `fight:walkin` | server → client | 双方开始走向擂台落脚点 |
 | `fight:countdown:start` | server → client | 倒计时阶段开始 |
 | `fight:countdown` | server → client | 剩余秒数（3…1） |
-| `fight:start` | server → client | 「Fight!」开局脉冲 |
-| `fight:snapshot` | server → client | 权威快照（含 `phase`、双方朝向与 combat 字段） |
+| `fight:start` | server → client | 「Fight!」开局脉冲；payload 含 `bettingEndsAt`、`bettingWindowMs`（观战下注窗口） |
+| `fight:bet:pool` | server → client | 有人下注后广播当前池总额（`totalAttacker` / `totalDefender` / `betCount`） |
+| `fight:snapshot` | server → client | 权威快照（含 `phase`、双方朝向与 combat 字段）；含 `bettingEndsAt` 与池汇总字段 |
 | `fight:event` | server → client | 结构化战斗事件 |
 | `fight:hit` | server → client | 简易命中播报（兼容旧 UI） |
 | `fight:ended` | server → client | 胜负、结算 |

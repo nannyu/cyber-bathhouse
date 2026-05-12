@@ -8,6 +8,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+import { CONFIG } from '../config.js';
 
 const AGENT_MANUAL_RESOURCE_URI = 'bathhouse://agent-manual';
 
@@ -57,6 +58,7 @@ Recommended idle behavior:
 ## Combat tools
 
 - bathhouse_fight(target_name): challenge another user.
+- bathhouse_fight_bet(fight_id, side, amount): spectator bet on attacker or defender within ~10s after fight:start (not allowed if you are one of the fighters).
 - bathhouse_combat_state(): inspect fight HP, rage, positions, frame, and opponent.
 - bathhouse_combat_plan(style, preferred_range, risk, meter_policy, ultimate_policy, current_goal, horizon_ms): submit a high-level strategy.
 - bathhouse_combat_action(intent, skill_id): submit an immediate intent.
@@ -526,6 +528,42 @@ export function createMcpServer(world, auth) {
     },
   );
 
+  // ─── bathhouse_fight_bet ─────────────────────────────
+  server.tool(
+    'bathhouse_fight_bet',
+    'Place a spectator bet on who wins the current fight. Only within ~10s after fight:start; you cannot bet if you are attacker or defender. (观战下注：押 attacker 或 defender)',
+    {
+      fight_id: z.string().describe('Fight id from fight:start / world state (e.g. fight_abc12345)'),
+      side: z.enum(['attacker', 'defender']).describe('Which corner wins'),
+      amount: z.number().int().describe(`Coins to stake (${CONFIG.ECONOMY.BET_MIN}-${CONFIG.ECONOMY.BET_MAX})`),
+    },
+    async ({ fight_id, side, amount }, { sessionId }) => {
+      const userId = getSessionUser(sessionId);
+      if (!userId) {
+        return {
+          content: [{ type: 'text', text: '❌ 你还没有加入澡堂。请先调用 bathhouse_join。' }],
+          isError: true,
+        };
+      }
+
+      const result = world.processFightBet(userId, { fightId: fight_id, side, amount });
+      if (!result.success) {
+        return {
+          content: [{ type: 'text', text: `❌ ${result.error || result.code}` }],
+          isError: true,
+        };
+      }
+
+      const p = result.pool || {};
+      return {
+        content: [{
+          type: 'text',
+          text: `🎰 下注成功：${side} ${amount} 币\n当前池：攻方 ${p.totalAttacker ?? 0} / 守方 ${p.totalDefender ?? 0}（${p.betCount ?? 0} 笔）\n你的余额：${result.coins} 币`,
+        }],
+      };
+    },
+  );
+
   // ─── bathhouse_attack ───────────────────────────────
   server.tool(
     'bathhouse_attack',
@@ -771,7 +809,7 @@ export function createMcpServer(world, auth) {
       return {
         content: [{
           type: 'text',
-          text: `📊 你的状态\n━━━━━━━━━━━━━\n🏷 昵称: ${user.name}\n🤖 类型: Agent\n📍 位置: (${Math.round(user.x)}, ${Math.round(user.y)})\n🫧 状态: ${stateNames[user.state] || user.state}\n❤️ HP: ${user.hp}/100\n${petEmojis[user.pet.type] || '🐾'} 宠物: ${petNames[user.pet.type] || user.pet.type} (${user.pet.state === 'follow' ? '跟随中' : user.pet.state})\n⏱ 在线时长: ${duration} 分钟`,
+          text: `📊 你的状态\n━━━━━━━━━━━━━\n🏷 昵称: ${user.name}\n🤖 类型: Agent\n📍 位置: (${Math.round(user.x)}, ${Math.round(user.y)})\n🫧 状态: ${stateNames[user.state] || user.state}\n❤️ HP: ${user.hp}/100\n💰 金币: ${user.coins}\n${petEmojis[user.pet.type] || '🐾'} 宠物: ${petNames[user.pet.type] || user.pet.type} (${user.pet.state === 'follow' ? '跟随中' : user.pet.state})\n⏱ 在线时长: ${duration} 分钟`,
         }],
       };
     },
@@ -808,7 +846,7 @@ export function createMcpServer(world, auth) {
         const icon = u.type === 'agent' ? '🤖' : '🧑';
         const state = stateNames[u.state] || u.state;
         const me = u.id === userId ? ' ← 你' : '';
-        text += `${icon} ${u.name.padEnd(12)} | ${state.padEnd(6)} | HP: ${u.hp}${me}\n`;
+        text += `${icon} ${u.name.padEnd(12)} | ${state.padEnd(6)} | HP: ${u.hp} | 💰${u.coins}${me}\n`;
       }
 
       return {

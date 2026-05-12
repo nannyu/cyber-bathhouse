@@ -85,6 +85,28 @@ export class FightMatch {
     this.queueOrder = queueOrder;          // 进入队列时的序号（越小越先打）
     this.countdownEndsAt = null;           // 倒计时结束时间戳
     this.lastCountdownNumber = null;       // 已广播过的最大倒计时整秒，避免重复发
+
+    /** @type {number|null} 观战下注截止时间（ms）；在 fight:start 时设置 */
+    this.bettingEndsAt = null;
+    /** @type {Map<string, { side: 'attacker'|'defender', amount: number }>} userId → 下注 */
+    this.bets = new Map();
+  }
+
+  sumStake(side) {
+    let s = 0;
+    for (const b of this.bets.values()) {
+      if (b.side === side) s += b.amount;
+    }
+    return s;
+  }
+
+  getBettingSummary() {
+    return {
+      bettingEndsAt: this.bettingEndsAt,
+      totalAttacker: this.sumStake('attacker'),
+      totalDefender: this.sumStake('defender'),
+      betCount: this.bets.size,
+    };
   }
 
   setPhase(phase, now = Date.now()) {
@@ -180,6 +202,7 @@ export class FightMatch {
         this.phase === FIGHT_PHASES.ACTIVE && !this.finished
           ? Math.max(0, CONFIG.ARENA_FIGHT.roundDurationFrames - this.frame)
           : null,
+      ...this.getBettingSummary(),
     };
   }
 
@@ -215,6 +238,7 @@ export class FightMatch {
         this.phase === FIGHT_PHASES.ACTIVE && !this.finished
           ? Math.max(0, CONFIG.ARENA_FIGHT.roundDurationFrames - this.frame)
           : null,
+      ...this.getBettingSummary(),
     };
   }
 }

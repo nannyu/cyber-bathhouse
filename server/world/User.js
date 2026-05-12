@@ -26,11 +26,14 @@ export class User {
    * @param {string} options.type - 用户类型 (browser | agent)
    * @param {string} [options.petType] - 宠物类型
    */
-  constructor({ id, name, type, petType }) {
+  constructor({ id, name, type, petType, coins = 0 }) {
     this.id = id;
     this.name = name;
     this.type = type; // 'browser' | 'agent'
     this.state = STATES.IDLE;
+
+    /** @type {number} 金币（与 accounts.coins 同步；NPC 为 0） */
+    this.coins = typeof coins === 'number' && Number.isFinite(coins) ? Math.max(0, Math.floor(coins)) : 0;
 
     /** NPC（id 以 npc_ 开头）不携带宠物，仅真实玩家有宠物 */
     const isNpc = typeof id === 'string' && id.startsWith('npc_');
@@ -299,6 +302,7 @@ export class User {
       id: this.id,
       name: this.name,
       type: this.type,
+      coins: this.coins,
       x: Math.round(this.x),
       y: Math.round(this.y),
       targetX: Math.round(this.targetX),
@@ -335,6 +339,7 @@ export class User {
       hp: this.hp,
       rage: this.rage,
       rageState: this.rageState,
+      coins: this.coins,
     };
   }
 }

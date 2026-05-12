@@ -167,4 +167,14 @@ export const CONFIG = {
 
   // MCP agent 离线保留时间 (ms)
   AGENT_OFFLINE_TIMEOUT: 300000, // 5 分钟
+
+  /** 金币 / 观战下注（服务端权威） */
+  ECONOMY: {
+    INITIAL_COINS: parseInt(process.env.INITIAL_COINS || '1000', 10),
+    FIGHT_WIN_COINS: parseInt(process.env.FIGHT_WIN_COINS || '50', 10),
+    FIGHT_LOSS_COINS: parseInt(process.env.FIGHT_LOSS_COINS || '30', 10),
+    BET_MIN: parseInt(process.env.BET_MIN || '10', 10),
+    BET_MAX: parseInt(process.env.BET_MAX || '200', 10),
+    BETTING_WINDOW_MS: parseInt(process.env.BETTING_WINDOW_MS || '10000', 10),
+  },
 };

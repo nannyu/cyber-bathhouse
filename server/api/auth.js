@@ -59,6 +59,7 @@ export class AuthManager {
       nickname,
       userId,
       role: 'user',
+      coins: CONFIG.ECONOMY.INITIAL_COINS,
     });
     const resolvedPetType = petType && CONFIG.PET_TYPES.includes(petType)
       ? petType

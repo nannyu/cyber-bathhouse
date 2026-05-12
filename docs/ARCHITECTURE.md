@@ -172,6 +172,14 @@ stateDiagram-v2
 | `palette` | object | 角色配色 |
 | `pet` | Pet | AI 宠物实例 |
 | `lastActive` | number | 最后活跃时间戳 |
+| `coins` | number | 金币余额（与 SQLite `accounts.coins` 同步；加入世界时读库） |
+
+#### 金币与观战下注（Economy）
+
+- **持久化**：`accounts.coins`（迁移 v6）；注册与管理员引导账号写入 `CONFIG.ECONOMY.INITIAL_COINS`。
+- **胜负结算**：在 `FightManager._finalizeFight` 删除对局**之前**，由 `World._settleFightEconomy` 注入钩子执行：非 NPC 胜者加 `FIGHT_WIN_COINS`，败者扣 `FIGHT_LOSS_COINS`（不低于 0）；**平局**不调整胜负赏金，并**全额退回**所有已扣下注。
+- **观战下注**：仅在 `fight:start`（`phase === active`）起 `BETTING_WINDOW_MS` 内接受；**上场双方不可下注**。下注时从 DB 扣款（改注先退旧注再扣新注）；终局按奖池比例派给押中边（`FightMatch.bets` + `_settleParimutuelBets`）；胜方总押注为 0 时退回全池。
+- **异常结束**：`forceEndFight`、`processFlee`（逃跑）在移除对局前调用退款路径，避免吞注。
 
 #### FightManager + CombatEngine（擂台格斗）
 

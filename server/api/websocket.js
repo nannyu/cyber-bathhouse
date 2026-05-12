@@ -72,6 +72,13 @@ export function initWebSocket(io, world, auth) {
         case 'scrub':
           world.processScrub(socket.userId);
           break;
+        case 'fight_bet':
+          world.processFightBet(socket.userId, {
+            fightId: data.fightId || data.fight_id,
+            side: data.side,
+            amount: data.amount,
+          });
+          break;
       }
     });
 

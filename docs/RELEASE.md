@@ -63,6 +63,7 @@ docker compose up -d
 - 服务端权威：`FightManager`（队列与走位）+ `CombatEngine`（仅 `phase === active` 时帧模拟）。
 - 同一场景 **单场串行**：其余挑战排队，角色移至擂台两侧候场坐标（见 `CONFIG.ARENA_FIGHT`）。
 - 客户端：`fight:queued` / `fight:walkin` / `fight:countdown` / `fight:start` / `fight:snapshot` / `fight:ended`；精灵条带见 `client/public/sprites/manifest.json`。
+- **金币与观战下注**：账户 `coins` 存 SQLite；胜负增减币（NPC 不参与）；`fight:start` 起约 10 秒内非上场玩家可 `POST /api/action/fight-bet` 或 MCP `bathhouse_fight_bet`；`fight:start` / `fight:snapshot` 带池子汇总；`fight:bet:pool` 广播池变化；平局 / 逃跑 / `forceEndFight` 退未结注。
 - 设计与数值细节：[AI_FIGHTING_DEVELOPMENT.md](./AI_FIGHTING_DEVELOPMENT.md)。
 
 ### 5) 管理员后台（基础版）
