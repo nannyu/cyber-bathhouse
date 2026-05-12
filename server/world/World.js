@@ -1063,9 +1063,9 @@ export class World {
     const profile = this.database.getPetByOwnerUserId(ownerUserId);
     if (!profile) return { success: false, error: '宠物不存在', code: 'PET_NOT_FOUND' };
     const binding = this.database.revokeAgentBindingForPet(profile.id);
+    const updated = this.database.updatePetControlMode(profile.id, 'follow');
     const user = this.users.get(ownerUserId);
     if (user?.pet) {
-      const updated = this.database.updatePetControlMode(profile.id, 'follow');
       this.applyPetProfileToUser(user, updated);
     }
     return { success: true, binding };

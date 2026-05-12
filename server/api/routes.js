@@ -159,7 +159,8 @@ export function createApiRoutes(world, auth) {
       req.path === '/agent/invites/consume' ||
       // agent token 专用接口：需要走下面的 agentAuth 中间件
       req.path === '/agent/private-chat/inbox' ||
-      req.path === '/agent/private-chat/reply';
+      req.path === '/agent/private-chat/reply' ||
+      req.path.startsWith('/agent/pet/');
     if (isPublicAgentEndpoint) {
       return next();
     }
@@ -849,6 +850,13 @@ export function createApiRoutes(world, auth) {
     const agentToken = auth.database.getAgentToken(token);
     if (!agentToken || Date.now() > agentToken.expiresAt) {
       return res.status(401).json({ success: false, error: 'Agent Token 无效或过期', code: 'AUTH_REQUIRED' });
+    }
+    const binding = auth.database.getAgentBindingByPetId(agentToken.petId);
+    if (!binding || binding.agentId !== agentToken.agentId) {
+      return res.status(401).json({ success: false, error: 'Agent Token 未绑定宠物', code: 'AGENT_NOT_BOUND' });
+    }
+    if (binding.status !== 'active') {
+      return res.status(401).json({ success: false, error: '主人已断开 Agent', code: 'BINDING_REVOKED' });
     }
     req.agent = agentToken;
     next();
