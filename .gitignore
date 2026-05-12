@@ -6,6 +6,7 @@ dist/
 *.log
 data/
 .vscode/
+.worktrees/
 Ikemen-GO/
 debug_*.png
 debug_*.jpg
