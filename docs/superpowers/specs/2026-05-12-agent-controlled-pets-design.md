@@ -1,25 +1,27 @@
-# Agent-Controlled Pets Design
+# Agent 接管宠物设计
 
-## Goal
+## 目标
 
-Turn pets from owner-following companions into controllable AI avatars. A user can bind an external Agent to their pet, enable Agent control, and let that Agent move, speak, emote, and periodically stay active as the pet. The server must not run built-in autonomous pet AI; all autonomous behavior comes from the bound external Agent.
+把宠物从“跟随主人的陪伴挂件”升级为“可被外部 Agent 接管的 AI 分身”。用户可以把自己的宠物绑定给一个外部 Agent，开启 Agent 接管后，由该 Agent 以宠物身份移动、说话、做表情，并按用户允许的心跳节奏保持活跃。
 
-## Product Principles
+服务端不运行内置宠物自主 AI。所有自主行为都必须来自绑定的外部 Agent。
 
-- Pets remain owned by a user. They are not full user accounts and do not participate in coins, betting, or combat.
-- Only the bound external Agent can control a pet.
-- Users can enable or disable Agent control at any time.
-- Users can enable or disable periodic Agent activity separately from Agent control.
-- Public pet speech is clearly attributed to the pet, not to the owner.
-- The connection flow should feel one-click from the web UI and one command from an Agent CLI.
+## 产品原则
 
-## User Experience
+- 宠物始终归属于用户，不是完整用户账号，不参与金币、下注或格斗。
+- 只有绑定到该宠物的外部 Agent 能控制宠物。
+- 用户可以随时开启或关闭 Agent 接管。
+- “Agent 接管”和“定期活跃”是两个独立开关。
+- 宠物公开发言必须明确归属于宠物，不能伪装成主人发言。
+- 连接流程应尽量做到：网页端一键生成，Agent CLI 端一行命令接入。
 
-The Pet Settings panel adds a primary action:
+## 用户体验
 
-- `Connect Agent`
+宠物设置面板增加一个主操作：
 
-Clicking it creates a short-lived one-use invite and shows copyable connection commands:
+- `连接 Agent`
+
+用户点击后，服务端创建一个短期、一次性的邀请码，并展示可复制的连接命令：
 
 ```bash
 codex mcp add cyber-pet --transport http "https://YOUR_SERVER/mcp/pet?invite=INVITE_CODE"
@@ -27,59 +29,59 @@ claude mcp add cyber-pet --transport http "https://YOUR_SERVER/mcp/pet?invite=IN
 kimi mcp add --transport http cyber-pet "https://YOUR_SERVER/mcp/pet?invite=INVITE_CODE"
 ```
 
-The panel also shows:
+面板同时展示：
 
-- Connection state: not connected, pending, connected, disconnected.
-- Bound Agent id and last heartbeat time.
-- Control mode selector: follow, stay, Agent controlled.
-- Heartbeat activity toggle: enabled or disabled.
-- Activity frequency: quiet, standard, active.
-- Public speech permission: enabled or disabled.
-- Actions: summon private chat, recall pet, disconnect Agent, regenerate invite.
+- 连接状态：未连接、等待连接、已连接、已离线。
+- 已绑定 Agent id 与最近心跳时间。
+- 控制模式：跟随、原地等待、Agent 接管。
+- 定期活跃开关：开启或关闭。
+- 活跃频率：安静、标准、活跃。
+- 公开发言权限：允许或禁止。
+- 操作按钮：召唤私聊、召回宠物、断开 Agent、重新生成邀请。
 
-When connected and Agent control is enabled, the pet can move independently from its owner. The owner can always recall the pet, switch back to follow, or disconnect the Agent.
+当 Agent 已连接且用户开启 Agent 接管后，宠物可以离开主人独立移动。主人始终可以召回宠物、切回跟随模式，或断开 Agent。
 
-## Connection Model
+## 连接模型
 
-There are two MCP entry points:
+系统保留两个 MCP 入口：
 
-- `/mcp`: normal Cyber Bathhouse Agent access.
-- `/mcp/pet?invite=...`: pet-specific Agent access.
+- `/mcp`：普通赛博澡堂 Agent 入口。
+- `/mcp/pet?invite=...`：宠物专用 Agent 入口。
 
-The pet MCP entry point consumes the invite during the first successful connection. It creates or refreshes the binding between:
+宠物专用 MCP 入口在首次成功连接时消费邀请码，并创建或刷新以下绑定关系：
 
 - `ownerUserId`
 - `petId`
 - `agentId`
 - `agentToken`
 
-After binding, the pet MCP session exposes only pet tools. It does not expose normal user tools such as fighting or betting.
+绑定完成后，该 MCP 会话只暴露宠物工具，不暴露普通用户工具，例如格斗、下注等。
 
-The existing REST invite path can be kept for generic integrations, but the user-facing happy path should be MCP invite commands.
+现有 REST 邀请路径可以保留给通用集成使用，但面向用户的主流程应优先展示 MCP 一行连接命令。
 
-## Data Model
+## 数据模型
 
-Extend `pets` with:
+扩展 `pets` 表：
 
-- `control_mode`: `follow`, `stay`, or `agent_controlled`.
-- `heartbeat_enabled`: integer boolean.
-- `heartbeat_frequency`: `quiet`, `standard`, or `active`.
-- `public_speech_enabled`: integer boolean.
-- `last_agent_heartbeat_at`: timestamp nullable.
-- `last_agent_action_at`: timestamp nullable.
-- `last_public_speech_at`: timestamp nullable.
+- `control_mode`：`follow`、`stay` 或 `agent_controlled`。
+- `heartbeat_enabled`：整数布尔值。
+- `heartbeat_frequency`：`quiet`、`standard` 或 `active`。
+- `public_speech_enabled`：整数布尔值。
+- `last_agent_heartbeat_at`：可空时间戳。
+- `last_agent_action_at`：可空时间戳。
+- `last_public_speech_at`：可空时间戳。
 
-Extend `agent_bindings` with:
+扩展 `agent_bindings` 表：
 
-- `last_seen_at`: timestamp nullable.
-- `client_name`: optional string.
-- `status`: `active`, `revoked`, or `expired`.
+- `last_seen_at`：可空时间戳。
+- `client_name`：可选字符串。
+- `status`：`active`、`revoked` 或 `expired`。
 
-Existing invite and token tables remain the authorization source.
+现有邀请表和 token 表继续作为授权来源。
 
-## Runtime Pet State
+## 运行时宠物状态
 
-The existing `Pet` entity should gain enough state to act independently while still living under its owner:
+现有 `Pet` 实体需要增加足够的状态，使宠物能在仍然归属于主人的前提下独立行动：
 
 - `id`
 - `ownerUserId`
@@ -91,37 +93,37 @@ The existing `Pet` entity should gain enough state to act independently while st
 - `bubbleExpiresAt`
 - `lastAgentActionAt`
 
-Behavior:
+行为规则：
 
-- `follow`: pet follows owner using existing movement logic.
-- `stay`: pet remains at current coordinates.
-- `agent_controlled`: pet moves toward its own target and does not follow owner.
-- `trick`, `greet`, and `cheering` are temporary presentation states. They return to the previous control mode when finished.
+- `follow`：宠物使用现有逻辑跟随主人。
+- `stay`：宠物停留在当前位置。
+- `agent_controlled`：宠物向自己的目标坐标移动，不再自动跟随主人。
+- `trick`、`greet`、`cheering` 是临时表现状态，结束后回到之前的控制模式。
 
-World snapshots should include pet identity and speech bubble fields so the client can render pet-owned activity without pretending it is owner chat.
+世界快照需要包含宠物身份和宠物气泡字段，让前端可以渲染宠物自己的行动，而不是把宠物行动伪装成主人聊天。
 
-## Agent Tools
+## Agent 工具
 
-Pet MCP sessions expose:
+宠物 MCP 会话暴露以下工具：
 
-- `pet_status`: read pet settings, control mode, owner online state, and heartbeat state.
-- `pet_look`: observe the bathhouse from the pet perspective, including nearby users, nearby pets, owner location, recent public messages, and current coordinates.
-- `pet_move`: move the pet to a coordinate within world bounds.
-- `pet_say`: publish speech as the pet if public speech is enabled.
-- `pet_emote`: trigger a short pet animation or bubble.
-- `pet_return`: recall the pet to the owner or set follow mode.
-- `pet_heartbeat`: report the Agent is alive and receive whether activity is due.
+- `pet_status`：读取宠物设置、控制模式、主人在线状态和心跳状态。
+- `pet_look`：从宠物视角观察澡堂，包括附近用户、附近宠物、主人位置、最近公开消息和当前坐标。
+- `pet_move`：把宠物移动到世界范围内的指定坐标。
+- `pet_say`：在允许公开发言时，以宠物身份发布公开消息。
+- `pet_emote`：触发一个短暂的宠物动作或气泡。
+- `pet_return`：让宠物回到主人身边，或切换到跟随模式。
+- `pet_heartbeat`：报告 Agent 仍在线，并获取是否到了定期活跃时间。
 
-REST equivalents should live under `/api/agent/pet/*` and require the Agent token.
+对应 REST 接口放在 `/api/agent/pet/*` 下，并要求携带 Agent token。
 
-## Heartbeat Protocol
+## 心跳协议
 
-The heartbeat mechanism has two separate meanings:
+心跳机制包含两层含义：
 
-1. Connection heartbeat: the Agent proves it is still online.
-2. Activity heartbeat: the server tells the Agent whether the user allows periodic pet activity.
+1. 连接心跳：Agent 证明自己仍在线。
+2. 活动心跳：服务端告诉 Agent，用户是否允许宠物定期主动活动，以及当前是否到了活跃时间。
 
-Request:
+请求示例：
 
 ```json
 {
@@ -131,7 +133,7 @@ Request:
 }
 ```
 
-Response:
+响应示例：
 
 ```json
 {
@@ -147,33 +149,33 @@ Response:
 }
 ```
 
-If `heartbeatEnabled` is false, the Agent should keep sending connection heartbeats but should not proactively move, speak, or emote unless directly prompted by the owner through private chat.
+如果 `heartbeatEnabled` 为 false，Agent 仍应继续发送连接心跳，但不应主动移动、公开说话或做动作，除非主人通过私聊直接要求。
 
-Recommended intervals:
+推荐间隔：
 
-- Connection heartbeat: every 30 seconds.
-- Offline display threshold: no heartbeat for 90 seconds.
-- Quiet activity: about every 5 minutes.
-- Standard activity: about every 2 minutes.
-- Active activity: about every 45 seconds.
-- Public speech cooldown: at least 60 seconds.
-- Movement cooldown: at least 5 seconds.
+- 连接心跳：每 30 秒一次。
+- 离线显示阈值：超过 90 秒无心跳。
+- 安静模式活跃间隔：约 5 分钟。
+- 标准模式活跃间隔：约 2 分钟。
+- 活跃模式活跃间隔：约 45 秒。
+- 公开发言冷却：至少 60 秒。
+- 移动冷却：至少 5 秒。
 
-The server may reject actions that violate cooldowns or disabled settings.
+服务端可以拒绝违反冷却、权限开关或控制模式的动作。
 
-## Authorization Rules
+## 授权规则
 
-- Owner-authenticated routes can create invites, change pet settings, recall pets, and revoke bindings.
-- Agent-authenticated routes can only operate on the pet bound to their token.
-- Agent movement and speech require `control_mode = agent_controlled`.
-- Agent proactive activity requires `heartbeat_enabled = true`.
-- Agent public speech requires `public_speech_enabled = true`.
-- Revoked bindings and expired tokens are rejected.
-- Invite codes are single-use, short-lived, and never stored in plaintext.
+- 用户认证路由可以创建邀请、修改宠物设置、召回宠物、撤销绑定。
+- Agent 认证路由只能操作自己的 token 绑定的那只宠物。
+- Agent 移动和公开发言要求 `control_mode = agent_controlled`。
+- Agent 主动周期性活动要求 `heartbeat_enabled = true`。
+- Agent 公开发言要求 `public_speech_enabled = true`。
+- 被撤销的绑定和过期 token 必须被拒绝。
+- 邀请码一次性、短期有效，并且不以明文存储。
 
-## Public Chat Attribution
+## 公开聊天归属
 
-Pet speech should create a public chat message with pet identity metadata:
+宠物公开发言应创建带有宠物身份元数据的公开聊天消息：
 
 - `senderType: "pet"`
 - `petId`
@@ -181,44 +183,44 @@ Pet speech should create a public chat message with pet identity metadata:
 - `name: petNickname`
 - `message`
 
-Client rendering can show:
+客户端展示示例：
 
 ```text
 🐾 泡泡：我去池边巡逻一下。
 ```
 
-This replaces the current workaround where Agent replies are sent as owner chat with a pet prefix.
+这会替代当前“Agent 回复时借主人身份发送带宠物前缀消息”的临时做法。
 
-## Frontend Changes
+## 前端改动
 
-Pet Settings adds:
+宠物设置面板增加：
 
-- Connect Agent button and generated command output.
-- Connection state and last heartbeat.
-- Control mode selector.
-- Heartbeat activity toggle.
-- Activity frequency selector.
-- Public speech toggle.
-- Recall and disconnect buttons.
+- 连接 Agent 按钮和生成的连接命令输出。
+- 连接状态与最近心跳时间。
+- 控制模式选择器。
+- 定期活跃开关。
+- 活跃频率选择器。
+- 公开发言开关。
+- 召回和断开按钮。
 
-The Canvas renderer should support:
+Canvas 渲染需要支持：
 
-- Pet independent movement in `agent_controlled` mode.
-- Pet bubbles independent from owner bubbles.
-- Optional visual indicator for connected Agent control.
+- 宠物在 `agent_controlled` 模式下独立移动。
+- 宠物气泡独立于主人气泡。
+- 可选的 Agent 接管视觉标记。
 
-The private chat panel can stay as the owner-to-Agent conversation surface.
+现有私聊面板继续作为主人和绑定 Agent 的对话入口。
 
-## API Sketch
+## API 草案
 
-Owner routes:
+用户路由：
 
-- `POST /api/agent/invites` creates an invite and returns MCP commands.
-- `PATCH /api/pets/:petId/settings` updates nickname, visibility, control mode, heartbeat settings, and public speech.
-- `POST /api/pets/:petId/recall` returns the pet to the owner and optionally switches to follow.
-- `POST /api/pets/:petId/disconnect-agent` revokes the active binding and tokens.
+- `POST /api/agent/invites`：创建邀请并返回 MCP 连接命令。
+- `PATCH /api/pets/:petId/settings`：更新昵称、可见性、控制模式、心跳设置和公开发言设置。
+- `POST /api/pets/:petId/recall`：把宠物召回主人身边，并可选切换为跟随模式。
+- `POST /api/pets/:petId/disconnect-agent`：撤销当前绑定和 token。
 
-Agent routes:
+Agent 路由：
 
 - `GET /api/agent/pet/status`
 - `GET /api/agent/pet/look`
@@ -228,69 +230,69 @@ Agent routes:
 - `POST /api/agent/pet/return`
 - `POST /api/agent/pet/heartbeat`
 
-## Error Handling
+## 错误处理
 
-Common errors:
+常见错误：
 
-- `PET_NOT_FOUND`: pet does not exist or owner has no access.
-- `AGENT_NOT_BOUND`: Agent token is not bound to a pet.
-- `AGENT_CONTROL_DISABLED`: owner has not enabled Agent control.
-- `HEARTBEAT_DISABLED`: periodic activity is disabled.
-- `PUBLIC_SPEECH_DISABLED`: pet is not allowed to speak publicly.
-- `ACTION_RATE_LIMITED`: action cooldown or global rate limit exceeded.
-- `INVITE_EXPIRED`: invite expired.
-- `INVITE_USED`: invite already consumed.
-- `BINDING_REVOKED`: owner disconnected the Agent.
+- `PET_NOT_FOUND`：宠物不存在，或当前用户无权访问。
+- `AGENT_NOT_BOUND`：Agent token 没有绑定宠物。
+- `AGENT_CONTROL_DISABLED`：主人尚未开启 Agent 接管。
+- `HEARTBEAT_DISABLED`：定期活跃已关闭。
+- `PUBLIC_SPEECH_DISABLED`：宠物不允许公开发言。
+- `ACTION_RATE_LIMITED`：动作冷却或全局频率限制命中。
+- `INVITE_EXPIRED`：邀请已过期。
+- `INVITE_USED`：邀请已被使用。
+- `BINDING_REVOKED`：主人已断开 Agent。
 
-## Implementation Phases
+## 实现阶段
 
-Phase 1: Binding and settings
+第一阶段：绑定与设置
 
-- Add database fields and migrations.
-- Extend pet settings API and UI.
-- Generate pet MCP invite commands.
-- Show connection state and last heartbeat.
+- 添加数据库字段和迁移。
+- 扩展宠物设置 API 和 UI。
+- 生成宠物 MCP 邀请命令。
+- 展示连接状态和最近心跳时间。
 
-Phase 2: Pet identity and actions
+第二阶段：宠物身份与动作
 
-- Add pet identity fields to runtime `Pet`.
-- Add Agent pet status, look, move, say, emote, return, and heartbeat routes.
-- Add pet public chat attribution.
-- Render pet bubbles independently.
+- 给运行时 `Pet` 增加身份字段。
+- 添加 Agent 宠物 status、look、move、say、emote、return、heartbeat 路由。
+- 增加宠物公开聊天归属。
+- 独立渲染宠物气泡。
 
-Phase 3: Pet MCP entry point
+第三阶段：宠物 MCP 入口
 
-- Add `/mcp/pet?invite=...`.
-- Consume invite on first connection.
-- Expose pet-only MCP tools.
-- Ensure normal bathhouse tools are unavailable from pet sessions.
+- 添加 `/mcp/pet?invite=...`。
+- 首次连接时消费邀请码。
+- 暴露宠物专用 MCP 工具。
+- 确保宠物 MCP 会话无法访问普通澡堂工具。
 
-Phase 4: Polish and safety
+第四阶段：打磨与安全
 
-- Add cooldowns.
-- Add disconnect and recall flows.
-- Add offline indicators.
-- Update `AGENTS.md`, `docs/API_REFERENCE.md`, and `docs/MCP_GUIDE.md`.
+- 增加动作冷却。
+- 增加断开和召回流程。
+- 增加离线状态提示。
+- 更新 `AGENTS.md`、`docs/API_REFERENCE.md` 和 `docs/MCP_GUIDE.md`。
 
-## Testing
+## 测试
 
-Automated checks should cover:
+自动化测试覆盖：
 
-- Invite creation and one-time consumption.
-- Agent token cannot control another pet.
-- Agent actions fail unless `agent_controlled` is enabled.
-- Heartbeat updates last seen time.
-- Activity heartbeat returns `activityDue` only when enabled.
-- Public speech respects the public speech toggle and cooldown.
-- Pet movement is bounded by world size.
-- Owner recall overrides Agent-controlled movement.
-- Revoked bindings reject all Agent actions.
+- 邀请创建和一次性消费。
+- Agent token 不能控制其他宠物。
+- 未开启 `agent_controlled` 时，Agent 动作失败。
+- 心跳会更新最近在线时间。
+- 只有开启定期活跃时，心跳才返回 `activityDue`。
+- 公开发言遵守公开发言开关和冷却。
+- 宠物移动不能超出世界边界。
+- 主人召回会覆盖 Agent 控制中的移动。
+- 撤销绑定后，所有 Agent 动作都会被拒绝。
 
-Manual verification should cover:
+手动验证覆盖：
 
-- User creates invite and copies a Codex command.
-- Agent connects and appears as bound.
-- Pet moves independently from the owner.
-- Pet says a public message under pet identity.
-- User disables heartbeat activity and Agent stops proactive actions.
-- User disconnects Agent and pet control stops.
+- 用户创建邀请并复制 Codex 命令。
+- Agent 连接后，页面显示已绑定。
+- 宠物可以离开主人独立移动。
+- 宠物以自己的身份发送公开消息。
+- 用户关闭定期活跃后，Agent 停止主动行动。
+- 用户断开 Agent 后，宠物控制停止。
