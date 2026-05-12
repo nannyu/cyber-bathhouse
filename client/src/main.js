@@ -1176,10 +1176,17 @@ function renderPetPanel() {
   stopPrivateChatPolling();
   const petName = petProfile?.petNickname || '';
   const petCode = petProfile?.petCode || '加载中...';
+  const heartbeatAt = petProfile?.lastAgentHeartbeatAt
+    ? new Date(petProfile.lastAgentHeartbeatAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : '暂无';
+  const connectionState = petProfile?.lastAgentHeartbeatAt
+    ? ((Date.now() - petProfile.lastAgentHeartbeatAt) > 90000 ? '已离线' : '已连接')
+    : '未连接';
   sidebarContent.innerHTML = `
     <div class="panel">
       <div class="panel-header">🛠️ PET SETTINGS</div>
       <div class="settings-form">
+        <div class="chat-system">Agent：${connectionState} · 心跳 ${heartbeatAt}</div>
         <label class="login-label">宠物昵称</label>
         <input id="pet-nickname-input" class="login-input" value="${escapeHtml(petName)}" maxlength="20" />
         <label class="login-label">识别码（只读）</label>
@@ -1189,21 +1196,41 @@ function renderPetPanel() {
           <option value="public" ${(petProfile?.chatVisibility || 'public') === 'public' ? 'selected' : ''}>公开（默认，所有人可见）</option>
           <option value="private" ${petProfile?.chatVisibility === 'private' ? 'selected' : ''}>私聊（仅自己可见）</option>
         </select>
+        <label class="login-label">控制模式</label>
+        <select id="pet-control-mode" class="login-input">
+          <option value="follow" ${(petProfile?.controlMode || 'follow') === 'follow' ? 'selected' : ''}>跟随我</option>
+          <option value="stay" ${petProfile?.controlMode === 'stay' ? 'selected' : ''}>原地等待</option>
+          <option value="agent_controlled" ${petProfile?.controlMode === 'agent_controlled' ? 'selected' : ''}>Agent 接管</option>
+        </select>
+        <label class="login-label">活跃频率</label>
+        <select id="pet-heartbeat-frequency" class="login-input">
+          <option value="quiet" ${petProfile?.heartbeatFrequency === 'quiet' ? 'selected' : ''}>安静</option>
+          <option value="standard" ${(petProfile?.heartbeatFrequency || 'standard') === 'standard' ? 'selected' : ''}>标准</option>
+          <option value="active" ${petProfile?.heartbeatFrequency === 'active' ? 'selected' : ''}>活跃</option>
+        </select>
+        <label class="login-label">
+          <input id="pet-heartbeat-enabled" type="checkbox" ${petProfile?.heartbeatEnabled ? 'checked' : ''} />
+          定期活跃
+        </label>
+        <label class="login-label">
+          <input id="pet-public-speech-enabled" type="checkbox" ${petProfile?.publicSpeechEnabled === 0 ? '' : 'checked'} />
+          允许公开发言
+        </label>
         <div class="settings-actions">
-          <button id="save-pet-settings" class="chat-send-btn">保存昵称</button>
-          <button id="create-agent-invite" class="chat-send-btn">生成 Agent 邀请链接</button>
+          <button id="save-pet-settings" class="chat-send-btn">保存设置</button>
+          <button id="recall-pet" class="chat-send-btn">召回宠物</button>
+          <button id="disconnect-pet-agent" class="chat-send-btn">断开 Agent</button>
         </div>
-        <label class="login-label">邀请链接（发给 Agent 浏览器打开）</label>
-        <textarea id="agent-invite-output" class="login-input" rows="3" placeholder="邀请链接会显示在这里..." readonly></textarea>
         <div class="settings-actions">
-          <button type="button" id="copy-agent-invite-url" class="chat-send-btn">复制链接</button>
+          <button id="create-agent-invite" class="chat-send-btn">连接 Agent</button>
         </div>
-        <label class="login-label">给 AI Agent 的提示词（粘贴到 Claude / Codex / Cursor）</label>
-        <p class="login-subtitle" style="font-size:11px;margin:0 0 6px;">要求 Agent 先打开本仓库并阅读 CLAUDE.md → AGENTS.md，再按文中步骤兑换 Token、配置 MCP。</p>
-        <textarea id="agent-onboarding-prompt-output" class="login-input" rows="16" placeholder="生成邀请后，可复制提示词发给 AI…" readonly></textarea>
+        <label class="login-label">一键连接命令</label>
+        <textarea id="agent-mcp-command-output" class="login-input" rows="5" placeholder="连接命令会显示在这里..." readonly></textarea>
         <div class="settings-actions">
-          <button type="button" id="copy-agent-onboarding-prompt" class="chat-send-btn">复制提示词</button>
+          <button type="button" id="copy-agent-mcp-command" class="chat-send-btn">复制命令</button>
         </div>
+        <label class="login-label">邀请链接</label>
+        <textarea id="agent-invite-output" class="login-input" rows="2" placeholder="邀请链接会显示在这里..." readonly></textarea>
       </div>
     </div>
   `;
@@ -1211,9 +1238,19 @@ function renderPetPanel() {
     if (!petProfile) return;
     const nickname = document.getElementById('pet-nickname-input').value.trim();
     const chatVisibility = document.getElementById('pet-chat-visibility').value;
+    const controlMode = document.getElementById('pet-control-mode').value;
+    const heartbeatFrequency = document.getElementById('pet-heartbeat-frequency').value;
+    const heartbeatEnabled = document.getElementById('pet-heartbeat-enabled').checked;
+    const publicSpeechEnabled = document.getElementById('pet-public-speech-enabled').checked;
     try {
-      petProfile = await conn.updatePetSettings(petProfile.id, nickname, chatVisibility);
+      petProfile = await conn.updatePetSettings(petProfile.id, nickname, chatVisibility, {
+        controlMode,
+        heartbeatEnabled,
+        heartbeatFrequency,
+        publicSpeechEnabled,
+      });
       appendSystemMessage('宠物设置已更新');
+      renderPetPanel();
     } catch (error) {
       appendSystemMessage(`宠物设置更新失败：${error.message || '未知错误'}`);
     }
@@ -1237,28 +1274,51 @@ function renderPetPanel() {
 
   document.getElementById('create-agent-invite')?.addEventListener('click', async () => {
     const linkOut = document.getElementById('agent-invite-output');
-    const promptOut = document.getElementById('agent-onboarding-prompt-output');
+    const commandOut = document.getElementById('agent-mcp-command-output');
     try {
       const result = await conn.createAgentInvite();
       linkOut.value = result.inviteUrl || '';
-      promptOut.value = result.agentOnboardingPrompt || '';
-      appendSystemMessage('已生成邀请链接与 AI 提示词，可复制发给 Agent。');
+      const commands = result.mcpCommands || {};
+      commandOut.value = [
+        commands.codex,
+        commands.claude,
+        commands.kimi,
+      ].filter(Boolean).join('\n');
+      appendSystemMessage('已生成 Agent 连接命令。');
     } catch (error) {
       linkOut.value = '';
-      promptOut.value = `生成失败：${error.message || '未知错误'}`;
+      commandOut.value = `生成失败：${error.message || '未知错误'}`;
     }
   });
 
-  document.getElementById('copy-agent-invite-url')?.addEventListener('click', async () => {
-    const v = document.getElementById('agent-invite-output')?.value || '';
+  document.getElementById('copy-agent-mcp-command')?.addEventListener('click', async () => {
+    const v = document.getElementById('agent-mcp-command-output')?.value || '';
     await copyPetPanelText(v);
-    if (v) appendSystemMessage('邀请链接已复制。');
+    if (v) appendSystemMessage('Agent 连接命令已复制。');
   });
 
-  document.getElementById('copy-agent-onboarding-prompt')?.addEventListener('click', async () => {
-    const v = document.getElementById('agent-onboarding-prompt-output')?.value || '';
-    await copyPetPanelText(v);
-    if (v) appendSystemMessage('AI 提示词已复制。');
+  document.getElementById('recall-pet')?.addEventListener('click', async () => {
+    if (!petProfile) return;
+    try {
+      await conn.recallPet(petProfile.id, true);
+      petProfile = await conn.getPetProfile();
+      appendSystemMessage('宠物已召回。');
+      renderPetPanel();
+    } catch (error) {
+      appendSystemMessage(`召回失败：${error.message || '未知错误'}`);
+    }
+  });
+
+  document.getElementById('disconnect-pet-agent')?.addEventListener('click', async () => {
+    if (!petProfile) return;
+    try {
+      await conn.disconnectPetAgent(petProfile.id);
+      petProfile = await conn.getPetProfile();
+      appendSystemMessage('Agent 已断开。');
+      renderPetPanel();
+    } catch (error) {
+      appendSystemMessage(`断开失败：${error.message || '未知错误'}`);
+    }
   });
 }
 

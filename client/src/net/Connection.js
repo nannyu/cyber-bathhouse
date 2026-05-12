@@ -319,18 +319,49 @@ export class Connection {
     return data;
   }
 
-  async updatePetSettings(petId, petNickname, chatVisibility) {
+  async updatePetSettings(petId, petNickname, chatVisibility, options = {}) {
     const res = await fetch(`/api/pets/${encodeURIComponent(petId)}/settings`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.token}`,
       },
-      body: JSON.stringify({ pet_nickname: petNickname, chat_visibility: chatVisibility }),
+      body: JSON.stringify({
+        pet_nickname: petNickname,
+        chat_visibility: chatVisibility,
+        control_mode: options.controlMode,
+        heartbeat_enabled: !!options.heartbeatEnabled,
+        heartbeat_frequency: options.heartbeatFrequency,
+        public_speech_enabled: options.publicSpeechEnabled !== false,
+      }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '更新失败');
     return data.pet;
+  }
+
+  async recallPet(petId, follow = true) {
+    const res = await fetch(`/api/pets/${encodeURIComponent(petId)}/recall`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify({ follow }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '召回失败');
+    return data;
+  }
+
+  async disconnectPetAgent(petId) {
+    const res = await fetch(`/api/pets/${encodeURIComponent(petId)}/disconnect-agent`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.token}` },
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '断开失败');
+    return data;
   }
 
   async changePassword(currentPassword, newPassword) {
