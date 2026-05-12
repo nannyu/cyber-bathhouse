@@ -4,10 +4,12 @@
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { Database } from '../server/db/Database.js';
 import { World } from '../server/world/World.js';
 import { CONFIG } from '../server/config.js';
+import { createPetMcpServer } from '../server/mcp/index.js';
 
 function assertOk(value, label) {
   if (!value?.success) {
@@ -89,6 +91,15 @@ try {
     heartbeatFrequency: 'active',
     publicSpeechEnabled: true,
   });
+  const nicknameOnly = db.updatePetSettings(pet.id, { petNickname: '泡泡二号' });
+  if (
+    nicknameOnly.controlMode !== 'agent_controlled' ||
+    nicknameOnly.heartbeatEnabled !== 1 ||
+    nicknameOnly.publicSpeechEnabled !== 1
+  ) {
+    throw new Error(`partial update reset settings: ${JSON.stringify(nicknameOnly)}`);
+  }
+  db.updatePetSettings(pet.id, { petNickname: '泡泡' });
   world.applyPetProfileToUser(joined.user, db.getPetByOwnerUserId(ownerUserId));
 
   const token = db.getAgentToken('agt_agent_pet_smoke');
@@ -146,6 +157,24 @@ try {
     'BINDING_REVOKED',
     'heartbeat after revoke',
   );
+
+  const inviteCode = 'agi_smoke_lazy_bind';
+  const inviteCodeHash = crypto.createHash('sha256').update(inviteCode).digest('hex');
+  db.createAgentInvite({
+    id: 'inv_lazy_bind',
+    ownerUserId,
+    petId: pet.id,
+    inviteCodeHash,
+    expiresAt: Date.now() + 60000,
+    maxUses: 1,
+    usedCount: 0,
+    createdAt: Date.now(),
+  });
+  createPetMcpServer(world, { database: db }, inviteCode);
+  const unconsumedInvite = db.getAgentInviteByCodeHash(inviteCodeHash);
+  if (unconsumedInvite.usedCount !== 0) {
+    throw new Error(`expected MCP pet server creation to keep invite unused, got ${unconsumedInvite.usedCount}`);
+  }
 
   console.log(JSON.stringify({
     ok: true,

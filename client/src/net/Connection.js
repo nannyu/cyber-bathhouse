@@ -320,20 +320,29 @@ export class Connection {
   }
 
   async updatePetSettings(petId, petNickname, chatVisibility, options = {}) {
+    const body = {
+      pet_nickname: petNickname,
+      chat_visibility: chatVisibility,
+    };
+    if (Object.prototype.hasOwnProperty.call(options, 'controlMode')) {
+      body.control_mode = options.controlMode;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'heartbeatEnabled')) {
+      body.heartbeat_enabled = !!options.heartbeatEnabled;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'heartbeatFrequency')) {
+      body.heartbeat_frequency = options.heartbeatFrequency;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'publicSpeechEnabled')) {
+      body.public_speech_enabled = options.publicSpeechEnabled !== false;
+    }
     const res = await fetch(`/api/pets/${encodeURIComponent(petId)}/settings`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.token}`,
       },
-      body: JSON.stringify({
-        pet_nickname: petNickname,
-        chat_visibility: chatVisibility,
-        control_mode: options.controlMode,
-        heartbeat_enabled: !!options.heartbeatEnabled,
-        heartbeat_frequency: options.heartbeatFrequency,
-        public_speech_enabled: options.publicSpeechEnabled !== false,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '更新失败');

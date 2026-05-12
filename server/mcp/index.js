@@ -903,7 +903,7 @@ function createPetBindingFromInvite(world, auth, inviteCode) {
 }
 
 export function createPetMcpServer(world, auth, inviteCode) {
-  const binding = createPetBindingFromInvite(world, auth, inviteCode);
+  let binding = null;
   const server = new McpServer({
     name: 'cyber-bathhouse-pet',
     version: '1.0.0',
@@ -912,6 +912,9 @@ export function createPetMcpServer(world, auth, inviteCode) {
   });
 
   function runPetTool(fn) {
+    if (!binding) {
+      binding = createPetBindingFromInvite(world, auth, inviteCode);
+    }
     if (!binding.success) {
       return {
         content: [{ type: 'text', text: `❌ 宠物绑定失败：${binding.error}` }],

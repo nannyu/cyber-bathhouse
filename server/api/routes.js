@@ -535,14 +535,17 @@ export function createApiRoutes(world, auth) {
       });
     }
 
-    if (typeof pet_nickname !== 'string' || pet_nickname.trim().length < 1 || pet_nickname.trim().length > 20) {
+    const nextPetNickname = typeof pet_nickname === 'string' ? pet_nickname.trim() : petProfile.petNickname;
+    const nextChatVisibility = typeof chat_visibility === 'string' ? chat_visibility : petProfile.chatVisibility;
+
+    if (typeof nextPetNickname !== 'string' || nextPetNickname.length < 1 || nextPetNickname.length > 20) {
       return res.status(400).json({
         success: false,
         error: '宠物昵称长度必须在 1-20 字符之间',
         code: 'INVALID_PET_NICKNAME',
       });
     }
-    if (chat_visibility !== 'public' && chat_visibility !== 'private') {
+    if (nextChatVisibility !== 'public' && nextChatVisibility !== 'private') {
       return res.status(400).json({
         success: false,
         error: 'chat_visibility 必须是 public 或 private',
@@ -567,12 +570,16 @@ export function createApiRoutes(world, auth) {
     }
 
     const updated = auth.database.updatePetSettings(petId, {
-      petNickname: pet_nickname.trim(),
-      chatVisibility: chat_visibility,
+      petNickname: nextPetNickname,
+      chatVisibility: nextChatVisibility,
       controlMode,
-      heartbeatEnabled: heartbeat_enabled === true || heartbeat_enabled === 1,
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'heartbeat_enabled')
+        ? { heartbeatEnabled: heartbeat_enabled === true || heartbeat_enabled === 1 }
+        : {}),
       heartbeatFrequency,
-      publicSpeechEnabled: public_speech_enabled !== false && public_speech_enabled !== 0,
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'public_speech_enabled')
+        ? { publicSpeechEnabled: public_speech_enabled !== false && public_speech_enabled !== 0 }
+        : {}),
     });
     const user = world.getUser(req.userId);
     if (user?.pet) world.applyPetProfileToUser(user, updated);
@@ -816,6 +823,7 @@ export function createApiRoutes(world, auth) {
       agent_id: assignedAgentId,
       rest_endpoint: `${baseUrl}/api/agent`,
       mcp_endpoint: `${baseUrl}/mcp`,
+      mcp_note: '该 mcp_endpoint 是普通澡堂世界 MCP。宠物专用 MCP 使用 /mcp/pet?invite=...，需要在邀请码被兑换前连接；当前响应中的 agent_access_token 用于 REST 宠物接口。',
       capabilities: [
         'private_chat.receive',
         'private_chat.reply',

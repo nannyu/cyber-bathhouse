@@ -1140,9 +1140,13 @@ export class Database {
       petNickname: typeof patch.petNickname === 'string' ? patch.petNickname : current.petNickname,
       chatVisibility: patch.chatVisibility || current.chatVisibility || 'public',
       controlMode: patch.controlMode || current.controlMode || 'follow',
-      heartbeatEnabled: patch.heartbeatEnabled === true || patch.heartbeatEnabled === 1 ? 1 : 0,
+      heartbeatEnabled: Object.prototype.hasOwnProperty.call(patch, 'heartbeatEnabled')
+        ? (patch.heartbeatEnabled === true || patch.heartbeatEnabled === 1 ? 1 : 0)
+        : (current.heartbeatEnabled ? 1 : 0),
       heartbeatFrequency: patch.heartbeatFrequency || current.heartbeatFrequency || 'standard',
-      publicSpeechEnabled: patch.publicSpeechEnabled === false || patch.publicSpeechEnabled === 0 ? 0 : 1,
+      publicSpeechEnabled: Object.prototype.hasOwnProperty.call(patch, 'publicSpeechEnabled')
+        ? (patch.publicSpeechEnabled === false || patch.publicSpeechEnabled === 0 ? 0 : 1)
+        : (current.publicSpeechEnabled === 0 ? 0 : 1),
       updatedAt: Date.now(),
     };
     this._updatePetSettingsStmt.run(next);

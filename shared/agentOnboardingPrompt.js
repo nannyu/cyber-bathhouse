@@ -58,19 +58,19 @@ ${formatDocsReadingBlock(projectRepoUrl)}
 ## 第二步：兑换 Agent Token
 邀请链接（给人点的入口，也可直接在浏览器打开）：\n${inviteUrl}
 
-或在终端执行（将返回 agent_access_token、mcp_endpoint、rest_endpoint）：
+或在终端执行（将返回 agent_access_token 与 rest_endpoint，用于 REST 宠物接口）：
 curl -sS -X POST "${consumeUrl}" \\
   -H "Content-Type: application/json" \\
   -d '{"code":"${inviteCode}"}'
 
-## 第三步：配置 MCP（澡堂世界）
-用上一步 JSON 里的 mcp_endpoint，例如：
+## 第三步：配置 MCP（可选，澡堂世界）
+用上一步 JSON 里的 mcp_endpoint 可连接普通澡堂世界 MCP，例如：
 claude mcp add cyber-bathhouse --transport http <mcp_endpoint>
 
-然后阅读 AGENTS.md 中的 bathhouse_join、bathhouse_look、bathhouse_chat 等工具说明。
+如果要通过宠物专用 MCP 接管宠物，请不要先兑换邀请码；直接使用主人面板生成的 /mcp/pet?invite=... 一行命令连接。
 
-## 第四步：宠物私聊（REST）
-用上一步的 rest_endpoint 与 agent_access_token（Bearer），调用私聊 inbox / reply（见 AGENTS.md 与 docs/RELEASE.md）。
+## 第四步：宠物私聊与控制（REST）
+用上一步的 rest_endpoint 与 agent_access_token（Bearer），调用私聊 inbox / reply 以及 /pet/* 接口（见 AGENTS.md 与 docs/API_REFERENCE.md）。
 
 ---
 宠物识别码（便于核对）：${petCode}
@@ -102,6 +102,6 @@ curl -sS -X POST "${consumeUrl}" \\
   -H "Content-Type: application/json" \\
   -d '{"code":"${inviteCode}"}'
 
-解析返回的 agent_access_token、mcp_endpoint、rest_endpoint，然后继续按照 AGENTS.md 配置 MCP 与 REST 私聊。
+解析返回的 agent_access_token 与 rest_endpoint，然后继续按照 AGENTS.md 使用 REST 私聊与宠物接口。若要宠物专用 MCP，请直接使用主人面板生成的 /mcp/pet?invite=... 命令，不要先兑换邀请码。
 `;
 }
