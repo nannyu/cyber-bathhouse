@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🏯 赛博澡堂 v2 — 经营原型</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a2e;
+            color: #eee;
+            font-family: system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 12px;
+            color: #7ef9ff;
+            font-size: 20px;
+        }
+
+        #status {
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        #game-canvas {
+            border: 2px solid #334;
+            border-radius: 4px;
+            image-rendering: pixelated;
+            max-width: 100%;
+        }
+
+        #controls {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: #2a2a4a;
+            color: #eee;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        button:hover {
+            background: #3a3a6a;
+        }
+
+        #log {
+            margin-top: 16px;
+            width: 640px;
+            max-width: 100%;
+            max-height: 200px;
+            overflow-y: auto;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 11px;
+            font-family: monospace;
+            color: #8f8;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🏯 赛博澡堂 v2 — Phase 0 原型</h1>
+    <div id="status">连接中...</div>
+    <canvas id="game-canvas" width="640" height="416"></canvas>
+    <div id="controls">
+        <button id="btn-join">加入房间</button>
+        <button id="btn-register-agent">注册测试 Agent</button>
+    </div>
+    <div id="log"></div>
+
+    <script type="module" src="/src/main-v2.js"></script>
+</body>
+
+</html>
