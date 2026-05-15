@@ -208,4 +208,38 @@ CREATE TABLE tasks (
   reward_json TEXT,
   created_at INTEGER
 );
+
+-- 事件记录
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  title TEXT,
+  choice_made TEXT,
+  effect_json TEXT,
+  tick INTEGER,
+  created_at INTEGER
+);
+
+-- 日结算报告
+CREATE TABLE day_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id TEXT NOT NULL,
+  day INTEGER NOT NULL,
+  income INTEGER DEFAULT 0,
+  customers_served INTEGER DEFAULT 0,
+  avg_satisfaction INTEGER DEFAULT 0,
+  incidents INTEGER DEFAULT 0,
+  report_json TEXT,
+  created_at INTEGER
+);
+
+-- 房间状态快照
+CREATE TABLE room_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id TEXT NOT NULL,
+  day INTEGER,
+  state_json TEXT NOT NULL,
+  created_at INTEGER
+);
 ```
