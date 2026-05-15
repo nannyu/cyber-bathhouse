@@ -67,8 +67,11 @@ export class GameLoop {
 
         const result = this.validator.validateAll(actions, character, this.room);
 
-        // 将合法动作排队
+        // 将合法动作排队（move_to 附带已计算的 path）
         for (const action of result.validated) {
+            if (action.type === 'move_to' && result._paths?.has(action)) {
+                action._path = result._paths.get(action);
+            }
             character.queueAction(action);
         }
 
@@ -150,10 +153,10 @@ export class GameLoop {
     _executeAction(character, action) {
         switch (action.type) {
             case ACTION_TYPES.MOVE_TO: {
-                // 如果角色已在移动中，新路径覆盖旧路径
-                const path = this.validator._validateMoveTo(action, character, this.room);
-                if (path.valid && path.path) {
-                    character.setPath(path.path);
+                // 使用校验时已计算的路径，避免重复寻路
+                const path = action._path || this.validator._validateMoveTo(action, character, this.room).path;
+                if (path) {
+                    character.setPath(path);
                 }
                 break;
             }

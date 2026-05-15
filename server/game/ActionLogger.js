@@ -29,6 +29,7 @@ export class ActionLogger {
         created_at INTEGER NOT NULL
       )
     `);
+        this.db.exec(`CREATE INDEX IF NOT EXISTS idx_action_logs_v2_room_tick ON action_logs_v2(room_id, tick)`);
     }
 
     /**

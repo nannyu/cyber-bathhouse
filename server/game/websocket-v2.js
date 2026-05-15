@@ -21,7 +21,7 @@ export function initWebSocketV2(io, gameLoop, room, auth) {
 
         // Phase 0 开发 token 快捷通道
         if (token === 'phase0-dev-token') {
-            socket.userId = `dev_${Date.now().toString(36)}`;
+            socket.userId = 'dev_player_001';
             socket.userName = 'DevPlayer';
             socket.userType = 'player';
             return next();

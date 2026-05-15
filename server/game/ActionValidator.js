@@ -17,9 +17,10 @@ export class ActionValidator {
     validateAll(actions, character, room) {
         const validated = [];
         const rejected = [];
+        const _paths = new Map(); // move_to 动作 → 已计算路径
 
         if (!Array.isArray(actions)) {
-            return { validated, rejected: [{ action: null, reason: 'Actions must be an array' }] };
+            return { validated, rejected: [{ action: null, reason: 'Actions must be an array' }], _paths };
         }
 
         // 限制最大动作数
@@ -29,12 +30,15 @@ export class ActionValidator {
             const result = this.validate(action, character, room);
             if (result.valid) {
                 validated.push(action);
+                if (result.path) {
+                    _paths.set(action, result.path);
+                }
             } else {
                 rejected.push({ action, reason: result.reason });
             }
         }
 
-        return { validated, rejected };
+        return { validated, rejected, _paths };
     }
 
     /**
