@@ -124,6 +124,13 @@ const io = new SocketIOServer(httpServer, {
 // ─── WebSocket 初始化 ─────────────────────────────────
 initWebSocket(io, world, auth);
 
+// ─── v2 游戏模块（Phase 0 原型）──────────────────────
+import { initGameV2 } from './game/index.js';
+import { Router } from 'express';
+const v2Router = Router();
+app.use('/api', v2Router);
+initGameV2(io, database.db, auth, v2Router);
+
 // ─── 启动 ─────────────────────────────────────────────
 httpServer.listen(CONFIG.PORT, () => {
   console.log('');

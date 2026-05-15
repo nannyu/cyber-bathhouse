@@ -14,10 +14,18 @@ import { GAME_CONFIG } from './config-v2.js';
 export function initWebSocketV2(io, gameLoop, room, auth) {
     const v2Namespace = io.of('/v2');
 
-    // 认证中间件
+    // 认证中间件（Phase 0 开发模式允许 dev token）
     v2Namespace.use((socket, next) => {
         const token = socket.handshake.auth?.token;
         if (!token) return next(new Error('AUTH_REQUIRED'));
+
+        // Phase 0 开发 token 快捷通道
+        if (token === 'phase0-dev-token') {
+            socket.userId = `dev_${Date.now().toString(36)}`;
+            socket.userName = 'DevPlayer';
+            socket.userType = 'player';
+            return next();
+        }
 
         const result = auth.validate(token);
         if (!result.valid) return next(new Error('AUTH_REQUIRED'));
