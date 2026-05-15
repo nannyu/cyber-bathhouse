@@ -38,9 +38,7 @@ export class Character {
      */
     setPath(path) {
         this.path = path || [];
-        if (this.path.length > 0) {
-            this.state = CHARACTER_STATES.MOVING;
-        }
+        this.state = this.path.length > 0 ? CHARACTER_STATES.MOVING : CHARACTER_STATES.IDLE;
     }
 
     /**
@@ -55,12 +53,17 @@ export class Character {
             return false;
         }
 
+        // 能量不足时停止移动
+        if (this.energy < GAME_CONFIG.ENERGY_COST.move) {
+            this.path = [];
+            this.state = CHARACTER_STATES.IDLE;
+            return false;
+        }
+
         const next = this.path.shift();
         this.x = next.x;
         this.y = next.y;
-
-        // 消耗能量
-        this.energy = Math.max(0, this.energy - GAME_CONFIG.ENERGY_COST.move);
+        this.energy -= GAME_CONFIG.ENERGY_COST.move;
 
         if (this.path.length === 0) {
             this.state = CHARACTER_STATES.IDLE;

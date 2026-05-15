@@ -3,8 +3,6 @@
  * 加载地图 JSON，提供碰撞检测和邻接查询
  */
 
-import { GAME_CONFIG } from './config-v2.js';
-
 export class TileMap {
     /**
      * @param {Object} mapData - 地图 JSON 数据
